@@ -45,7 +45,7 @@ class ConnectScreen extends StatelessWidget {
                 SizedBox(height: 10),
                 Text('1. Authorize — อนุญาตสิทธิ์ร้านค้าบนแพลตฟอร์ม'),
                 Text('2. Get Token — รับ Access Token จาก Open API'),
-                Text('3. Set up system — ตั้งค่า Shop ID / Partner และโหมด Sandbox'),
+                Text('3. Set up system — ตั้งค่า Shop ID / Partner และโหมด API'),
                 Text('4. Sync data — ดึงออเดอร์และส่งเข้า ERP/SAP'),
               ],
             ),
@@ -63,13 +63,34 @@ class _Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget row(String k, String v) {
+    String mask(String raw) {
+      if (raw == '-' || raw.length <= 8) return raw;
+      const keep = 4;
+      final star = raw.length - keep * 2;
+      return '${raw.substring(0, keep)}${'*' * star}${raw.substring(raw.length - keep)}';
+    }
+
+    String when(DateTime? t) => t == null ? '-' : dtSec.format(t);
+
+    Widget row(String k, String v, {Color? color}) {
       return Padding(
-        padding: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.only(bottom: 10),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(width: 90, child: Text(k, style: const TextStyle(color: Pal.muted, fontSize: 13))),
-            Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13))),
+            Text(k, style: const TextStyle(color: Pal.muted, fontSize: 13)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                v,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: color ?? Pal.text,
+                ),
+              ),
+            ),
           ],
         ),
       );
@@ -89,29 +110,36 @@ class _Card extends StatelessWidget {
             children: [
               ChannelDot(channel: s.channel, size: 40),
               const SizedBox(width: 12),
-              Expanded(child: Text(s.channel.label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800))),
+              Expanded(
+                child: Text(s.channel.label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           connPill(s.status),
           const SizedBox(height: 16),
           row('ร้านค้า', s.shop),
+          row(s.idLabel, s.shopId),
           row('Partner ID', s.partnerId),
           row('โหมด API', s.mode),
-          row('ซิงก์ล่าสุด', s.lastSync == null ? '-' : dtFmt.format(s.lastSync!)),
-          const SizedBox(height: 16),
+          row('Access Token', mask(s.accessToken)),
+          row('Refresh Token', mask(s.refreshToken)),
+          row('เชื่อมต่อครั้งล่าสุด', when(s.lastConnected)),
+          row('ซิงก์ข้อมูลล่าสุด', when(s.lastSync)),
+          row('สถานะการเชื่อมต่อ', s.health, color: s.health == 'ปกติ' ? Pal.primary : null),
+          const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton(
+            child: OutlinedButton.icon(
               onPressed: () {
                 showDialog<void>(
                   context: context,
                   builder: (ctx) => AlertDialog(
                     title: Text('ตั้งค่า ${s.channel.label}'),
                     content: Text(
-                      s.status == ConnStatus.off
+                      s.status == ConnStatus.waiting
                           ? 'เริ่มต้นการเชื่อมต่อ API ของ ${s.channel.label}'
-                          : 'จัดการ Token, Shop ID และโหมด Sandbox ของ ${s.channel.label}',
+                          : 'จัดการ Token, Shop ID และโหมด API ของ ${s.channel.label}',
                     ),
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ปิด')),
@@ -125,7 +153,8 @@ class _Card extends StatelessWidget {
                 side: const BorderSide(color: Pal.primary),
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
-              child: const Text('ตั้งค่า'),
+              icon: const Icon(Icons.settings_outlined, size: 18),
+              label: const Text('ตั้งค่า'),
             ),
           ),
         ],

@@ -127,6 +127,7 @@ class StockRow {
     required this.shopee,
     required this.tiktok,
     required this.lazada,
+    required this.updatedAt,
   });
 
   final String sku;
@@ -137,24 +138,37 @@ class StockRow {
   final bool shopee;
   final bool tiktok;
   final bool lazada;
+  final DateTime updatedAt;
 }
 
 class ShopConn {
   const ShopConn({
     required this.channel,
     required this.status,
-    required this.lastSync,
-    required this.mode,
     required this.shop,
+    required this.shopId,
     required this.partnerId,
+    required this.mode,
+    required this.accessToken,
+    required this.refreshToken,
+    required this.lastConnected,
+    required this.lastSync,
+    required this.health,
   });
 
   final Channel channel;
   final ConnStatus status;
-  final DateTime? lastSync;
-  final String mode;
   final String shop;
+  final String shopId;
   final String partnerId;
+  final String mode;
+  final String accessToken;
+  final String refreshToken;
+  final DateTime? lastConnected;
+  final DateTime? lastSync;
+  final String health;
+
+  String get idLabel => channel == Channel.lazada ? 'Seller ID' : 'Shop ID';
 }
 
 class SyncRow {
@@ -165,7 +179,8 @@ class SyncRow {
     required this.action,
     required this.status,
     required this.msg,
-    this.docNo,
+    this.docEntry,
+    this.docNum,
   });
 
   final DateTime time;
@@ -174,5 +189,6 @@ class SyncRow {
   final String action;
   final SyncStatus status;
   final String msg;
-  final String? docNo;
+  final String? docEntry;
+  final String? docNum;
 }

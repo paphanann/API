@@ -143,9 +143,9 @@ Widget productPill(ProductStatus s) {
 Widget connPill(ConnStatus s) {
   switch (s) {
     case ConnStatus.waiting:
-      return pill('รออนุมัติ', const Color(0xFFB45309), Pal.warnBg);
+      return pill('รอการเชื่อมต่อ', const Color(0xFFB45309), Pal.warnBg);
     case ConnStatus.sandbox:
-      return pill('Sandbox Connected', Pal.primary, Pal.infoBg);
+      return pill('เชื่อมต่อแล้ว (Sandbox)', const Color(0xFF15803D), Pal.okBg);
     case ConnStatus.live:
       return pill('เชื่อมต่อแล้ว', const Color(0xFF15803D), Pal.okBg);
     case ConnStatus.off:
