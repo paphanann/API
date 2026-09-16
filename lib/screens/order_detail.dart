@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../dummy.dart';
 import '../format.dart';
+import '../stores.dart';
 import '../theme.dart';
 import '../widgets/ui.dart';
 
@@ -13,7 +13,7 @@ class OrderDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final o = Dummy.orderById(id);
+    final o = OrderStore.instance.byId(id);
     if (o == null) {
       return Center(
         child: Column(

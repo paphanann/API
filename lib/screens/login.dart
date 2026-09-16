@@ -36,10 +36,10 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!(_form.currentState?.validate() ?? false)) return;
     final ok = await widget.session.login(_email.text, _pass.text);
     if (!ok) {
-      setState(() => _err = 'กรุณากรอกอีเมลและรหัสผ่าน');
+      setState(() => _err = widget.session.lastError ?? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
       return;
     }
-    if (mounted) context.go('/');
+    if (mounted) context.go('/connections');
   }
 
   @override

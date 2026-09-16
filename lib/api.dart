@@ -1,0 +1,235 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+import 'package:web/web.dart' as web;
+
+import 'config.dart';
+import 'json_util.dart';
+import 'models.dart';
+
+class ApiException implements Exception {
+  ApiException(this.message, {this.statusCode});
+
+  final String message;
+  final int? statusCode;
+
+  @override
+  String toString() => message;
+}
+
+class Api {
+  static String? token;
+
+  static Uri _u(String path, [Map<String, String>? query]) {
+    return Uri.parse('$apiUrl$path').replace(queryParameters: query);
+  }
+
+  static Map<String, String> _headers({bool json = false}) {
+    return {
+      if (json) 'Content-Type': 'application/json',
+      if (token != null && token!.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
+
+  static Future<http.Response> _send(Future<http.Response> req) async {
+    try {
+      return await req;
+    } catch (_) {
+      throw ApiException(
+        'เชื่อมต่อ Backend ไม่ได้ ที่ $apiUrl — เปิด Express พอร์ต 3000 ก่อน และ CORS ต้องอนุญาต http://localhost:5173',
+      );
+    }
+  }
+
+  static String _backendMessage(http.Response res) {
+    try {
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map) {
+        for (final key in ['message', 'Message', 'error', 'Error', 'detail', 'Detail']) {
+          final v = decoded[key];
+          if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+        }
+      }
+    } catch (_) {}
+    return 'Backend ตอบ ${res.statusCode}';
+  }
+
+  static Future<dynamic> _json(http.Response res) {
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException(_backendMessage(res), statusCode: res.statusCode);
+    }
+    if (res.body.isEmpty) return Future.value(null);
+    return Future.value(jsonDecode(res.body));
+  }
+
+  static List<dynamic> _list(dynamic json) {
+    if (json is List) return json;
+    if (json is Map) {
+      for (final key in ['data', 'connections', 'orders', 'logs', 'items', 'result', 'products', 'inventory', 'stocks']) {
+        final v = json[key];
+        if (v is List) return v;
+      }
+    }
+    return const [];
+  }
+
+  static Future<void> checkHealth() async {
+    final res = await _send(http.get(_u('/api/health'), headers: _headers()));
+    await _json(res);
+  }
+
+  static Future<List<SyncRow>> getSyncLogs() async {
+    final res = await _send(http.get(_u('/api/sync/logs'), headers: _headers()));
+    final rows = _list(await _json(res));
+    return [for (final row in rows) if (row is Map) SyncRow.fromApi(Map<String, dynamic>.from(row))];
+  }
+
+  static Future<DashData> getDashboard() async {
+    final res = await _send(http.get(_u('/api/dashboard'), headers: _headers()));
+    if (res.statusCode == 404) return DashData.empty();
+    final data = await _json(res);
+    if (data is Map) {
+      final map = Map<String, dynamic>.from(data);
+      final nested = pick(map, ['data', 'Data', 'result', 'Result', 'dashboard', 'Dashboard']);
+      if (nested is Map) return DashData.fromApi(Map<String, dynamic>.from(nested));
+      return DashData.fromApi(map);
+    }
+    return DashData.empty();
+  }
+
+  static Future<DashData> dashboardFromLive() async {
+    final chunks = await Future.wait([
+      getOrders(platform: Channel.shopee.apiPlatform),
+      getOrders(platform: Channel.tiktok.apiPlatform),
+      getOrders(platform: Channel.lazada.apiPlatform),
+      getConnections(),
+    ]);
+    return DashData.fromLive(
+      orders: [
+        ...chunks[0] as List<Order>,
+        ...chunks[1] as List<Order>,
+        ...chunks[2] as List<Order>,
+      ],
+      shops: chunks[3] as List<ShopConn>,
+    );
+  }
+
+  static Future<List<StockRow>> getInventory({String? warehouse}) async {
+    final query = warehouse == null || warehouse.isEmpty ? null : {'warehouse': warehouse};
+    var res = await _send(http.get(_u('/api/inventory', query), headers: _headers()));
+    if (res.statusCode == 404) {
+      res = await _send(http.get(_u('/api/stocks', query), headers: _headers()));
+    }
+    final rows = _list(await _json(res));
+    return [for (final row in rows) if (row is Map) StockRow.fromApi(Map<String, dynamic>.from(row))];
+  }
+
+  static Future<List<Product>> getProducts({String? platform}) async {
+    final query = platform == null || platform.isEmpty ? null : {'platform': platform};
+    final res = await _send(http.get(_u('/api/products', query), headers: _headers()));
+    final rows = _list(await _json(res));
+    return [for (final row in rows) if (row is Map) Product.fromApi(Map<String, dynamic>.from(row))];
+  }
+
+  static Future<AppSettings> getSettings() async {
+    final res = await _send(http.get(_u('/api/settings'), headers: _headers()));
+    final data = await _json(res);
+    if (data is Map) return AppSettings.fromApi(Map<String, dynamic>.from(data));
+    return AppSettings.blank();
+  }
+
+  static Future<void> saveSettings(AppSettings settings) async {
+    final res = await _send(http.put(
+      _u('/api/settings'),
+      headers: _headers(json: true),
+      body: jsonEncode(settings.toJson()),
+    ));
+    await _json(res);
+  }
+
+  static Future<List<ShopConn>> getConnections() async {
+    final res = await _send(http.get(_u('/api/connections'), headers: _headers()));
+    final rows = _list(await _json(res));
+    return [for (final row in rows) if (row is Map) ShopConn.fromApi(Map<String, dynamic>.from(row))];
+  }
+
+  static Future<List<Order>> getOrders({String? platform}) async {
+    final query = platform == null || platform.isEmpty ? null : {'platform': platform};
+    final res = await _send(http.get(_u('/api/orders', query), headers: _headers()));
+    final rows = _list(await _json(res));
+    return [for (final row in rows) if (row is Map) Order.fromApi(Map<String, dynamic>.from(row))];
+  }
+
+  static Future<void> syncPlatform(Channel channel) async {
+    final res = await _send(http.post(_u('/api/sync/${channel.apiSlug}'), headers: _headers(json: true)));
+    await _json(res);
+  }
+
+  /// ต้องใช้ location.href ไม่ใช่ fetch — Shopee จะพาไป Authorize แล้วเด้งกลับ Backend
+  static const oauthReturnKey = 'pass_oauth_return';
+
+  static bool get pendingOAuthReturn {
+    final v = web.window.localStorage.getItem(oauthReturnKey);
+    return v != null && v.isNotEmpty;
+  }
+
+  static void clearOAuthReturn() {
+    web.window.localStorage.removeItem(oauthReturnKey);
+  }
+
+  static void connectPlatform(Channel channel) {
+    final origin = web.window.location.origin;
+    final back = '$origin/connections';
+    web.window.localStorage.setItem(oauthReturnKey, channel.apiSlug);
+    web.window.location.href = Uri.parse('$apiUrl/api/connections/${channel.apiSlug}/connect').replace(
+      queryParameters: {'returnUrl': back, 'redirect': back},
+    ).toString();
+  }
+
+  static Future<void> disconnectPlatform(Channel channel) async {
+    final res = await _send(http.post(_u('/api/connections/${channel.apiSlug}/disconnect'), headers: _headers(json: true)));
+    await _json(res);
+  }
+
+  /// ตรวจผู้ใช้จากฐานข้อมูลผ่าน Backend เท่านั้น
+  static Future<AuthUser> login({required String email, required String password}) async {
+    final body = jsonEncode({
+      'email': email,
+      'username': email,
+      'password': password,
+    });
+    var res = await _send(http.post(_u('/api/auth/login'), headers: _headers(json: true), body: body));
+    if (res.statusCode == 404) {
+      res = await _send(http.post(_u('/api/login'), headers: _headers(json: true), body: body));
+    }
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      final msg = _backendMessage(res);
+      throw ApiException(
+        msg.startsWith('Backend ตอบ') ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' : msg,
+        statusCode: res.statusCode,
+      );
+    }
+    final data = await _json(res);
+    if (data is! Map) {
+      throw ApiException('รูปแบบข้อมูลล็อกอินไม่ถูกต้อง');
+    }
+    final map = Map<String, dynamic>.from(data);
+    final nested = pick(map, ['user', 'User', 'data', 'Data']);
+    final user = nested is Map ? Map<String, dynamic>.from(nested) : map;
+    var name = pickStr(user, ['Name', 'name', 'FullName', 'DisplayName', 'displayName'], or: '');
+    if (name == '-') name = '';
+    return AuthUser(
+      email: pickStr(user, ['Email', 'email', 'Username', 'username'], or: email),
+      name: name,
+      token: pickStr(map, ['Token', 'token', 'accessToken', 'access_token', 'jwt'], or: ''),
+    );
+  }
+}
+
+class AuthUser {
+  const AuthUser({required this.email, required this.name, required this.token});
+
+  final String email;
+  final String name;
+  final String token;
+}

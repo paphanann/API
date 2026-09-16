@@ -273,6 +273,8 @@ class Drop<T> extends StatelessWidget {
             initialValue: value,
             items: items,
             onChanged: onChanged,
+            dropdownColor: Colors.white,
+            borderRadius: BorderRadius.circular(8),
             decoration: const InputDecoration(
               isDense: true,
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),

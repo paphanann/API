@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../api.dart';
+import '../models.dart';
 import '../theme.dart';
 import '../widgets/ui.dart';
 
@@ -11,10 +13,77 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final _company = TextEditingController();
+  final _tax = TextEditingController();
+  final _address = TextEditingController();
+  final _endpoint = TextEditingController();
   bool _auto = true;
   bool _errNoti = true;
   bool _okNoti = false;
   String _erp = 'SAP S/4HANA';
+  bool _loading = true;
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _company.dispose();
+    _tax.dispose();
+    _address.dispose();
+    _endpoint.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final s = await Api.getSettings();
+      _company.text = s.companyName;
+      _tax.text = s.taxId;
+      _address.text = s.address;
+      _endpoint.text = s.endpoint;
+      _erp = s.erp.isEmpty ? 'SAP S/4HANA' : s.erp;
+      _auto = s.autoSync;
+      _errNoti = s.notifyError;
+      _okNoti = s.notifySuccess;
+    } catch (e) {
+      _error = e is ApiException ? e.message : e.toString();
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await Api.saveSettings(AppSettings(
+        companyName: _company.text.trim(),
+        taxId: _tax.text.trim(),
+        address: _address.text.trim(),
+        erp: _erp,
+        endpoint: _endpoint.text.trim(),
+        autoSync: _auto,
+        notifyError: _errNoti,
+        notifySuccess: _okNoti,
+      ));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('บันทึกการตั้งค่าแล้ว')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
+      );
+    }
+    if (mounted) setState(() => _saving = false);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,15 +91,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
+          if (_loading) const Padding(padding: EdgeInsets.only(bottom: 16), child: LinearProgressIndicator(minHeight: 3)),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Text(_error!, style: const TextStyle(color: Pal.err)),
+            ),
           Panel(
             title: 'ข้อมูลบริษัท',
             child: Column(
               children: [
-                TextFormField(initialValue: 'PASS Co., Ltd.', decoration: const InputDecoration(labelText: 'ชื่อบริษัท')),
+                TextField(controller: _company, decoration: const InputDecoration(labelText: 'ชื่อบริษัท')),
                 const SizedBox(height: 12),
-                TextFormField(initialValue: 'TAX-0105567000000', decoration: const InputDecoration(labelText: 'เลขผู้เสียภาษี')),
+                TextField(controller: _tax, decoration: const InputDecoration(labelText: 'เลขผู้เสียภาษี')),
                 const SizedBox(height: 12),
-                TextFormField(initialValue: 'กรุงเทพมหานคร, ประเทศไทย', decoration: const InputDecoration(labelText: 'ที่อยู่')),
+                TextField(controller: _address, decoration: const InputDecoration(labelText: 'ที่อยู่')),
               ],
             ),
           ),
@@ -48,10 +123,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     DropdownMenuItem(value: 'Custom ERP', child: Text('Custom ERP')),
                   ],
                   onChanged: (v) => setState(() => _erp = v ?? _erp),
+                  dropdownColor: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
                   decoration: const InputDecoration(labelText: 'ระบบปลายทาง'),
                 ),
                 const SizedBox(height: 12),
-                const TextField(decoration: InputDecoration(labelText: 'Endpoint', hintText: 'https://erp.example.com/api')),
+                TextField(controller: _endpoint, decoration: const InputDecoration(labelText: 'Endpoint')),
                 const SizedBox(height: 12),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
@@ -86,16 +163,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Align(
             alignment: Alignment.centerRight,
             child: ElevatedButton(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('บันทึกแล้ว')));
-              },
-              child: const Text('บันทึกการตั้งค่า'),
+              onPressed: _saving ? null : _save,
+              child: Text(_saving ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'),
             ),
-          ),
-          const SizedBox(height: 8),
-          const Align(
-            alignment: Alignment.centerLeft,
-            child: Text('ข้อมูลที่แสดงเป็น Demo / Test Data', style: TextStyle(color: Pal.faint, fontSize: 12)),
           ),
         ],
       ),

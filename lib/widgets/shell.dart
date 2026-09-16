@@ -10,7 +10,7 @@ const _menus = [
   ('/orders', 'คำสั่งซื้อ', Icons.receipt_long_rounded),
   ('/products', 'สินค้า', Icons.inventory_2_outlined),
   ('/inventory', 'คลังสินค้า', Icons.warehouse_outlined),
-  ('/integration', 'การเชื่อมต่อ', Icons.link_rounded),
+  ('/connections', 'การเชื่อมต่อ', Icons.link_rounded),
   ('/sync-log', 'Sync Log', Icons.sync_rounded),
   ('/settings', 'ตั้งค่า', Icons.settings_outlined),
 ];
@@ -74,7 +74,8 @@ class AppShell extends StatelessWidget {
     if (path.startsWith('/orders')) return 'คำสั่งซื้อ';
     if (path.startsWith('/products')) return 'สินค้า';
     if (path.startsWith('/inventory')) return 'คลังสินค้า';
-    if (path.startsWith('/integration')) return 'การเชื่อมต่อ';
+    if (path.startsWith('/connections') || path.startsWith('/integration')) return 'การเชื่อมต่อ';
+    if (path.startsWith('/sync-log/')) return 'Error Detail';
     if (path.startsWith('/sync-log')) return 'Sync Log';
     if (path.startsWith('/settings')) return 'ตั้งค่า';
     return 'PASS';
@@ -89,7 +90,7 @@ class SideMenu extends StatelessWidget {
 
   bool _on(String loc, String path) {
     if (path == '/') return loc == '/';
-    return loc == path || loc.startsWith('$path/');
+    return loc == path || loc.startsWith('$path/') || (path == '/connections' && loc.startsWith('/integration'));
   }
 
   @override

@@ -29,10 +29,26 @@ class Pal {
 }
 
 ThemeData buildTheme() {
+  const box = RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(8)));
+  final radius = BorderRadius.circular(10);
+
+  final scheme = ColorScheme.fromSeed(seedColor: Pal.primary, primary: Pal.primary).copyWith(
+    surface: Colors.white,
+    surfaceContainer: Colors.white,
+    surfaceContainerHigh: Colors.white,
+    surfaceContainerHighest: Colors.white,
+    surfaceContainerLow: Colors.white,
+    surfaceContainerLowest: Colors.white,
+    surfaceTint: Colors.transparent,
+  );
+
   final base = ThemeData(
     useMaterial3: true,
-    colorScheme: ColorScheme.fromSeed(seedColor: Pal.primary, primary: Pal.primary),
+    colorScheme: scheme,
+    canvasColor: Colors.white,
+    cardColor: Colors.white,
     scaffoldBackgroundColor: Pal.bg,
+    applyElevationOverlayColor: false,
   );
 
   final text = GoogleFonts.promptTextTheme(base.textTheme).apply(
@@ -40,10 +56,38 @@ ThemeData buildTheme() {
     displayColor: Pal.text,
   );
 
-  final radius = BorderRadius.circular(10);
-
   return base.copyWith(
     textTheme: text,
+    dialogTheme: const DialogThemeData(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 8,
+      shadowColor: Color(0x33000000),
+      shape: box,
+    ),
+    popupMenuTheme: const PopupMenuThemeData(
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 8,
+      shadowColor: Color(0x33000000),
+      shape: box,
+    ),
+    menuTheme: const MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(Colors.white),
+        surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+        shadowColor: WidgetStatePropertyAll(Color(0x33000000)),
+        elevation: WidgetStatePropertyAll(8),
+        shape: WidgetStatePropertyAll(box),
+      ),
+    ),
+    dropdownMenuTheme: const DropdownMenuThemeData(
+      menuStyle: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(Colors.white),
+        surfaceTintColor: WidgetStatePropertyAll(Colors.transparent),
+        shape: WidgetStatePropertyAll(box),
+      ),
+    ),
     dividerTheme: const DividerThemeData(color: Pal.line, space: 1),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
