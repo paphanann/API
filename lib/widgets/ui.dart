@@ -82,9 +82,10 @@ class ChannelDot extends StatelessWidget {
 }
 
 class ChannelLabel extends StatelessWidget {
-  const ChannelLabel({super.key, required this.channel});
+  const ChannelLabel({super.key, required this.channel, this.maxLabelWidth = 110});
 
   final Channel channel;
+  final double maxLabelWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +94,16 @@ class ChannelLabel extends StatelessWidget {
       children: [
         ChannelDot(channel: channel, size: 20),
         const SizedBox(width: 8),
-        Text(channel.label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: channel.color)),
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxLabelWidth),
+          child: Text(
+            channel.label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: channel.color),
+          ),
+        ),
       ],
     );
   }
@@ -346,7 +356,7 @@ class Pages extends StatelessWidget {
 const tableHead = TextStyle(fontWeight: FontWeight.w700, color: Pal.muted, fontSize: 13);
 const tableHeadBg = WidgetStatePropertyAll(Color(0xFFF8FAFC));
 
-/// ยืดตารางให้เต็มความกว้างการ์ด ถ้าจอแคบค่อยเลื่อนข้าง
+/// ตารางเลื่อนข้างได้ — ไม่บีบคอลัมน์จนข้อความล้น (RenderFlex overflow)
 class FillTable extends StatelessWidget {
   const FillTable({super.key, required this.child});
 
@@ -356,11 +366,15 @@ class FillTable extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, box) {
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minWidth: box.maxWidth),
-            child: child,
+        return Scrollbar(
+          thumbVisibility: true,
+          scrollbarOrientation: ScrollbarOrientation.bottom,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: box.maxWidth),
+              child: child,
+            ),
           ),
         );
       },

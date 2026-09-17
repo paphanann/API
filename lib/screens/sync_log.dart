@@ -101,6 +101,8 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                   child: DataTable(
                     headingRowColor: tableHeadBg,
                     headingTextStyle: tableHead,
+                    columnSpacing: 24,
+                    horizontalMargin: 16,
                     dataRowMinHeight: 52,
                     dataRowMaxHeight: 64,
                     columns: const [
@@ -112,20 +114,31 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                       DataColumn(label: Text('ข้อความ')),
                       DataColumn(label: Text('SAP DocEntry')),
                       DataColumn(label: Text('SAP DocNum')),
-                      DataColumn(label: Text('Action')),
+                      DataColumn(label: Text('')),
                     ],
                     rows: [
                       for (final l in rows)
                         DataRow(
                           cells: [
-                            DataCell(Text(dtFmt.format(l.time))),
+                            DataCell(Text(dtFmt.format(l.time), maxLines: 1, softWrap: false)),
                             DataCell(ChannelLabel(channel: l.channel)),
-                            DataCell(Text(l.orderNo, style: const TextStyle(fontWeight: FontWeight.w600))),
-                            DataCell(Text(l.action)),
+                            DataCell(Text(
+                              l.orderNo,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            )),
+                            DataCell(Text(l.action, maxLines: 1, softWrap: false)),
                             DataCell(syncPill(l.status)),
-                            DataCell(Text(l.msg)),
-                            DataCell(Text(l.docEntry ?? '-')),
-                            DataCell(Text(l.docNum ?? '-')),
+                            DataCell(
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 320),
+                                child: Text(l.msg, maxLines: 2, overflow: TextOverflow.ellipsis),
+                              ),
+                            ),
+                            DataCell(Text(l.docEntry ?? '-', maxLines: 1, softWrap: false)),
+                            DataCell(Text(l.docNum ?? '-', maxLines: 1, softWrap: false)),
                             DataCell(
                               TextButton(
                                 onPressed: () => context.go('/sync-log/${Uri.encodeComponent(l.routeId)}'),

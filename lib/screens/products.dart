@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../api.dart';
 import '../format.dart';
 import '../models.dart';
 import '../stores.dart';
@@ -27,13 +28,32 @@ class _ProductsScreenState extends State<ProductsScreen> {
     await ProductStore.instance.load(platform: platform);
   }
 
+  Future<void> _syncNow() async {
+    final platform = _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform;
+    try {
+      await MarketplaceSyncStore.instance.syncNow(force: false);
+      await ProductStore.instance.load(platform: platform);
+      await InventoryStore.instance.load();
+      if (!mounted) return;
+      final msg = MarketplaceSyncStore.instance.lastMessage ?? 'Sync สำเร็จ';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: ProductStore.instance,
+      listenable: Listenable.merge([ProductStore.instance, MarketplaceSyncStore.instance]),
       builder: (context, _) {
         final store = ProductStore.instance;
+        final syncStore = MarketplaceSyncStore.instance;
         final rows = store.products.where((p) => _ch == 'all' || p.channel.name == _ch).toList();
+        final busy = store.loading || syncStore.syncing;
         return SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Panel(
@@ -58,9 +78,23 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     SizedBox(
                       height: 44,
                       child: ElevatedButton.icon(
-                        onPressed: store.loading ? null : _search,
+                        onPressed: busy ? null : _search,
                         icon: const Icon(Icons.search, size: 18),
                         label: const Text('ค้นหา'),
+                      ),
+                    ),
+                    SizedBox(
+                      height: 44,
+                      child: ElevatedButton.icon(
+                        onPressed: busy ? null : _syncNow,
+                        icon: syncStore.syncing
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.sync_rounded, size: 18),
+                        label: Text(syncStore.syncing ? 'กำลัง Sync...' : 'Sync Now'),
                       ),
                     ),
                   ],
@@ -69,7 +103,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   const SizedBox(height: 12),
                   Text(store.error!, style: const TextStyle(color: Pal.err)),
                 ],
-                if (store.loading) ...[
+                if (busy) ...[
                   const SizedBox(height: 16),
                   const LinearProgressIndicator(minHeight: 3),
                 ],
@@ -82,12 +116,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     dataRowMaxHeight: 64,
                     columns: const [
                       DataColumn(label: Text('SKU')),
-                      DataColumn(label: Text('สินค้า')),
-                      DataColumn(label: Text('Platform')),
+                      DataColumn(label: Text('ชื่อสินค้า')),
+                      DataColumn(label: Text('แพลตฟอร์ม')),
                       DataColumn(label: Text('ราคา')),
                       DataColumn(label: Text('สต็อก')),
                       DataColumn(label: Text('สถานะ')),
-                      DataColumn(label: Text('Sync')),
                     ],
                     rows: [
                       for (final p in rows)
@@ -99,19 +132,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             DataCell(Text(baht.format(p.price))),
                             DataCell(Text('${p.stock}')),
                             DataCell(productPill(p.status)),
-                            DataCell(
-                              pill(
-                                p.synced ? 'Synced' : 'Pending',
-                                p.synced ? const Color(0xFF15803D) : const Color(0xFFB45309),
-                                p.synced ? Pal.okBg : Pal.warnBg,
-                              ),
-                            ),
                           ],
                         ),
                     ],
                   ),
                 ),
-                if (rows.isEmpty && !store.loading)
+                if (rows.isEmpty && !busy)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 24),
                     child: Center(child: Text('ไม่พบสินค้า')),

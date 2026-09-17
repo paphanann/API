@@ -165,6 +165,18 @@ class Api {
     await _json(res);
   }
 
+  static Future<Map<String, dynamic>> syncNow({bool force = false}) async {
+    final res = await _send(
+      http.post(
+        _u('/api/sync/now', force ? {'force': '1'} : null),
+        headers: _headers(json: true),
+      ),
+    );
+    final data = await _json(res);
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {'success': true};
+  }
+
   /// ต้องใช้ location.href ไม่ใช่ fetch — Shopee จะพาไป Authorize แล้วเด้งกลับ Backend
   static const oauthReturnKey = 'pass_oauth_return';
 

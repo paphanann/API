@@ -129,6 +129,13 @@ class OrderStore extends ChangeNotifier {
     loading = false;
     notifyListeners();
   }
+
+  /// โหลดจาก DB ก่อน แล้ว sync จากแพลตฟอร์มพื้นหลังแล้วรีโหลด
+  Future<void> loadAndSync({String? platform}) async {
+    await load(platform: platform);
+    await MarketplaceSyncStore.instance.syncNow(quiet: true);
+    await load(platform: platform);
+  }
 }
 
 class SyncLogStore extends ChangeNotifier {
@@ -194,6 +201,50 @@ class DashStore extends ChangeNotifier {
   }
 }
 
+class MarketplaceSyncStore extends ChangeNotifier {
+  MarketplaceSyncStore._();
+  static final instance = MarketplaceSyncStore._();
+
+  bool syncing = false;
+  String? error;
+  String? lastMessage;
+
+  Future<Map<String, dynamic>?> syncNow({bool quiet = false, bool force = false}) async {
+    if (syncing) return null;
+    syncing = true;
+    error = null;
+    if (!quiet) notifyListeners();
+    try {
+      final result = await Api.syncNow(force: force);
+      if (result['skipped'] == true) {
+        lastMessage = result['message']?.toString() ?? 'เพิ่ง sync ไปแล้ว ข้ามรอบนี้';
+        return result;
+      }
+      final results = result['results'];
+      if (results is List && results.isNotEmpty) {
+        final parts = <String>[];
+        for (final row in results) {
+          if (row is Map && row['message'] != null) {
+            parts.add('${row['platform'] ?? ''}: ${row['message']}');
+          }
+        }
+        lastMessage = parts.isNotEmpty ? parts.join(' | ') : (result['message']?.toString() ?? 'Sync แล้ว');
+      } else {
+        lastMessage = result['message']?.toString() ?? 'Sync แล้ว';
+      }
+      return result;
+    } catch (e) {
+      error = e is ApiException ? e.message : e.toString();
+      lastMessage = null;
+      if (!quiet) rethrow;
+      return null;
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
+  }
+}
+
 class ProductStore extends ChangeNotifier {
   ProductStore._();
   static final instance = ProductStore._();
@@ -223,6 +274,12 @@ class ProductStore extends ChangeNotifier {
     }
     loading = false;
     notifyListeners();
+  }
+
+  Future<void> loadAndSync({String? platform}) async {
+    await load(platform: platform);
+    await MarketplaceSyncStore.instance.syncNow(quiet: true);
+    await load(platform: platform);
   }
 }
 
