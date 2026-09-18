@@ -80,13 +80,18 @@ class ShopStore extends ChangeNotifier {
   }
 
   Future<void> disconnect(Channel channel) async {
+    loading = true;
     error = null;
+    success = null;
     notifyListeners();
     try {
-      await Api.disconnectPlatform(channel);
+      final msg = await Api.disconnectPlatform(channel);
       await load();
+      success = msg;
+      notifyListeners();
     } catch (e) {
       error = e is ApiException ? e.message : e.toString();
+      loading = false;
       notifyListeners();
     }
   }
@@ -291,12 +296,12 @@ class InventoryStore extends ChangeNotifier {
   bool loading = false;
   String? error;
 
-  Future<void> load({String? warehouse}) async {
+  Future<void> load({String? warehouse, String? platform}) async {
     loading = true;
     error = null;
     notifyListeners();
     try {
-      rows = await Api.getInventory(warehouse: warehouse);
+      rows = await Api.getInventory(warehouse: warehouse, platform: platform);
     } catch (e) {
       error = e is ApiException ? e.message : e.toString();
       rows = [];

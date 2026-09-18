@@ -59,15 +59,25 @@ class Api {
       throw ApiException(_backendMessage(res), statusCode: res.statusCode);
     }
     if (res.body.isEmpty) return Future.value(null);
-    return Future.value(jsonDecode(res.body));
+    try {
+      return Future.value(jsonDecode(res.body));
+    } catch (_) {
+      return Future.value(null);
+    }
   }
 
   static List<dynamic> _list(dynamic json) {
     if (json is List) return json;
     if (json is Map) {
-      for (final key in ['data', 'connections', 'orders', 'logs', 'items', 'result', 'products', 'inventory', 'stocks']) {
+      for (final key in ['data', 'connections', 'orders', 'logs', 'items', 'result', 'products', 'inventory', 'stocks', 'warehouses', 'rows', 'value', 'list']) {
         final v = json[key];
         if (v is List) return v;
+        if (v is Map) {
+          for (final innerKey in ['data', 'items', 'products', 'rows', 'list', 'result']) {
+            final inner = v[innerKey];
+            if (inner is List) return inner;
+          }
+        }
       }
     }
     return const [];
@@ -114,11 +124,18 @@ class Api {
     );
   }
 
-  static Future<List<StockRow>> getInventory({String? warehouse}) async {
-    final query = warehouse == null || warehouse.isEmpty ? null : {'warehouse': warehouse};
-    var res = await _send(http.get(_u('/api/inventory', query), headers: _headers()));
+  static Future<List<StockRow>> getInventory({String? warehouse, String? platform}) async {
+    final query = <String, String>{};
+    if (warehouse != null && warehouse.isNotEmpty) query['warehouse'] = warehouse;
+    if (platform != null && platform.isNotEmpty) query['platform'] = platform;
+    final q = query.isEmpty ? null : query;
+
+    var res = await _send(http.get(_u('/api/warehouses', q), headers: _headers()));
     if (res.statusCode == 404) {
-      res = await _send(http.get(_u('/api/stocks', query), headers: _headers()));
+      res = await _send(http.get(_u('/api/inventory', q), headers: _headers()));
+    }
+    if (res.statusCode == 404) {
+      res = await _send(http.get(_u('/api/stocks', q), headers: _headers()));
     }
     final rows = _list(await _json(res));
     return [for (final row in rows) if (row is Map) StockRow.fromApi(Map<String, dynamic>.from(row))];
@@ -128,7 +145,7 @@ class Api {
     final query = platform == null || platform.isEmpty ? null : {'platform': platform};
     final res = await _send(http.get(_u('/api/products', query), headers: _headers()));
     final rows = _list(await _json(res));
-    return [for (final row in rows) if (row is Map) Product.fromApi(Map<String, dynamic>.from(row))];
+    return Product.fromApiList(rows);
   }
 
   static Future<AppSettings> getSettings() async {
@@ -198,9 +215,18 @@ class Api {
     ).toString();
   }
 
-  static Future<void> disconnectPlatform(Channel channel) async {
-    final res = await _send(http.post(_u('/api/connections/${channel.apiSlug}/disconnect'), headers: _headers(json: true)));
-    await _json(res);
+  static Future<String> disconnectPlatform(Channel channel) async {
+    final res = await _send(http.post(
+      _u('/api/connections/${channel.apiSlug}/disconnect'),
+      headers: _headers(json: true),
+      body: '{}',
+    ));
+    final data = await _json(res);
+    if (data is Map) {
+      final msg = pickStr(Map<String, dynamic>.from(data), ['message', 'Message'], or: '');
+      if (msg.isNotEmpty && msg != '-') return msg;
+    }
+    return 'ยกเลิกการเชื่อมต่อ ${channel.label} แล้ว';
   }
 
   /// ตรวจผู้ใช้จากฐานข้อมูลผ่าน Backend เท่านั้น

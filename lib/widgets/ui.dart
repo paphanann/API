@@ -1,5 +1,7 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../format.dart';
 import '../models.dart';
 import '../theme.dart';
 
@@ -120,11 +122,11 @@ Widget pill(String text, Color fg, Color bg) {
 Widget orderPill(OrderStatus s) {
   switch (s) {
     case OrderStatus.pending:
-      return pill('Pending', const Color(0xFFB45309), Pal.warnBg);
+      return pill('รอดำเนินการ', const Color(0xFFB45309), Pal.warnBg);
     case OrderStatus.success:
-      return pill('Success', const Color(0xFF15803D), Pal.okBg);
+      return pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg);
     case OrderStatus.cancelled:
-      return pill('Canceled', const Color(0xFFB91C1C), Pal.errBg);
+      return pill('ยกเลิก', const Color(0xFFB91C1C), Pal.errBg);
   }
 }
 
@@ -137,6 +139,22 @@ Widget syncPill(SyncStatus s) {
     case SyncStatus.pending:
       return pill('Pending', const Color(0xFFB45309), Pal.warnBg);
   }
+}
+
+Widget warehouseStatusPill(String raw) {
+  final v = raw.trim();
+  if (v.isEmpty || v == '-') return const Text('-');
+  final lower = v.toLowerCase();
+  if (lower.contains('inactive') || lower.contains('disable') || lower.contains('off') || lower.contains('ไม่ใช้งาน')) {
+    return pill('ไม่ใช้งาน', Pal.muted, const Color(0xFFF3F4F6));
+  }
+  if (lower.contains('pending') || lower.contains('wait') || lower.contains('รอ')) {
+    return pill('รอดำเนินการ', const Color(0xFFB45309), Pal.warnBg);
+  }
+  if (lower.contains('active') || lower.contains('enable') || lower.contains('online') || lower.contains('ใช้งาน')) {
+    return pill('ใช้งาน', const Color(0xFF15803D), Pal.okBg);
+  }
+  return pill(v, Pal.muted, const Color(0xFFF3F4F6));
 }
 
 Widget productPill(ProductStatus s) {
@@ -253,6 +271,145 @@ class StatCard extends StatelessWidget {
   }
 }
 
+/// ผลเลือกปฏิทิน — null = ปิดโดยไม่เปลี่ยน, cleared = ล้างตัวกรอง
+class CalendarPick {
+  const CalendarPick.range(this.range) : cleared = false;
+  const CalendarPick.clear() : range = null, cleared = true;
+
+  final DateTimeRange? range;
+  final bool cleared;
+}
+
+/// ปฏิทินช่วงวันที่ช่องเดียว — กดวันเริ่ม แล้วกดวันจบ
+Future<CalendarPick?> showSimpleCalendar({
+  required BuildContext context,
+  required DateTime from,
+  required DateTime to,
+}) {
+  final first = DateTime(2020);
+  final last = DateTime.now().add(const Duration(days: 365));
+  var start = DateTime(from.year, from.month, from.day);
+  var end = DateTime(to.year, to.month, to.day);
+  DateTime? pickedStart;
+
+  String label(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  return showDialog<CalendarPick>(
+    context: context,
+    builder: (ctx) {
+      return StatefulBuilder(
+        builder: (ctx, setSt) {
+          return Dialog(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: SizedBox(
+              width: 340,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text('เลือกวันที่', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+                        ),
+                        Text('${label(start)} - ${label(end)}', style: const TextStyle(color: Pal.muted, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 320,
+                    child: CalendarDatePicker(
+                      initialDate: start,
+                      firstDate: first,
+                      lastDate: last,
+                      currentDate: DateTime.now(),
+                      onDateChanged: (d) {
+                        final day = DateTime(d.year, d.month, d.day);
+                        if (pickedStart == null) {
+                          setSt(() {
+                            pickedStart = day;
+                            start = day;
+                            end = day;
+                          });
+                          return;
+                        }
+                        final a = pickedStart!;
+                        Navigator.pop(
+                          ctx,
+                          CalendarPick.range(DateTimeRange(start: a.isBefore(day) ? a : day, end: a.isBefore(day) ? day : a)),
+                        );
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                    child: Row(
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, const CalendarPick.clear()),
+                          child: const Text('ล้างตัวกรอง'),
+                        ),
+                        const Spacer(),
+                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+class DateRangeField extends StatelessWidget {
+  const DateRangeField({super.key, required this.from, required this.to, required this.onTap});
+
+  final DateTime? from;
+  final DateTime? to;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final has = from != null && to != null;
+    return SizedBox(
+      width: 240,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('ช่วงวันที่', style: TextStyle(fontSize: 12, color: Pal.muted, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 6),
+          InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(10),
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                isDense: true,
+                prefixIcon: Icon(Icons.calendar_today_outlined, size: 18),
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+              child: Text(
+                has ? '${dayFmt.format(from!)} - ${dayFmt.format(to!)}' : 'ทั้งหมด',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: has ? null : Pal.muted,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class Drop<T> extends StatelessWidget {
   const Drop({
     super.key,
@@ -356,23 +513,35 @@ class Pages extends StatelessWidget {
 const tableHead = TextStyle(fontWeight: FontWeight.w700, color: Pal.muted, fontSize: 13);
 const tableHeadBg = WidgetStatePropertyAll(Color(0xFFF8FAFC));
 
-/// ตารางเลื่อนข้างได้ — ไม่บีบคอลัมน์จนข้อความล้น (RenderFlex overflow)
+/// ตารางเลื่อนข้างได้ — ลากด้วยเมาส์ได้บนเว็บ ไม่ใช้ Scrollbar (กัน no ScrollPosition)
 class FillTable extends StatelessWidget {
-  const FillTable({super.key, required this.child});
+  const FillTable({super.key, required this.child, this.minWidth = 0});
 
   final Widget child;
+  final double minWidth;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, box) {
-        return Scrollbar(
-          thumbVisibility: true,
-          scrollbarOrientation: ScrollbarOrientation.bottom,
+        final parentW = box.maxWidth.isFinite ? box.maxWidth : 0.0;
+        final minW = parentW > minWidth ? parentW : minWidth;
+        return ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            scrollbars: false,
+            dragDevices: {
+              PointerDeviceKind.touch,
+              PointerDeviceKind.mouse,
+              PointerDeviceKind.trackpad,
+              PointerDeviceKind.stylus,
+            },
+          ),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minWidth: box.maxWidth),
+            primary: false,
+            padding: const EdgeInsets.only(bottom: 12),
+            child: SizedBox(
+              width: minW,
               child: child,
             ),
           ),

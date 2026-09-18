@@ -98,13 +98,14 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                 ],
                 const SizedBox(height: 16),
                 FillTable(
+                  minWidth: 1400,
                   child: DataTable(
                     headingRowColor: tableHeadBg,
                     headingTextStyle: tableHead,
                     columnSpacing: 24,
                     horizontalMargin: 16,
                     dataRowMinHeight: 52,
-                    dataRowMaxHeight: 64,
+                    dataRowMaxHeight: 72,
                     columns: const [
                       DataColumn(label: Text('เวลา')),
                       DataColumn(label: Text('Platform')),
@@ -112,8 +113,8 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                       DataColumn(label: Text('Action')),
                       DataColumn(label: Text('สถานะ')),
                       DataColumn(label: Text('ข้อความ')),
-                      DataColumn(label: Text('SAP DocEntry')),
-                      DataColumn(label: Text('SAP DocNum')),
+                      DataColumn(label: SizedBox(width: 120, child: Text('SAP DocEntry', softWrap: false))),
+                      DataColumn(label: SizedBox(width: 110, child: Text('SAP DocNum', softWrap: false))),
                       DataColumn(label: Text('')),
                     ],
                     rows: [
@@ -134,11 +135,11 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                             DataCell(
                               ConstrainedBox(
                                 constraints: const BoxConstraints(maxWidth: 320),
-                                child: Text(l.msg, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                child: Text(l.msg, maxLines: 3, overflow: TextOverflow.ellipsis),
                               ),
                             ),
-                            DataCell(Text(l.docEntry ?? '-', maxLines: 1, softWrap: false)),
-                            DataCell(Text(l.docNum ?? '-', maxLines: 1, softWrap: false)),
+                            DataCell(SizedBox(width: 120, child: Text(l.docEntry ?? '-', maxLines: 1, softWrap: false))),
+                            DataCell(SizedBox(width: 110, child: Text(l.docNum ?? '-', maxLines: 1, softWrap: false))),
                             DataCell(
                               TextButton(
                                 onPressed: () => context.go('/sync-log/${Uri.encodeComponent(l.routeId)}'),

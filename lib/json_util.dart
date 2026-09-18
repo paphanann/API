@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 dynamic pick(Map<String, dynamic> m, List<String> keys) {
   for (final want in keys) {
     for (final e in m.entries) {
@@ -21,6 +23,9 @@ String pickStr(Map<String, dynamic> m, List<String> keys, {String or = '-'}) {
 double pickDouble(Map<String, dynamic> m, List<String> keys) {
   final v = pick(m, keys);
   if (v is num) return v.toDouble();
+  if (v is Map) {
+    return pickDouble(Map<String, dynamic>.from(v), ['price', 'Price', 'amount', 'Amount', 'original_price', 'sale_price', 'current_price']);
+  }
   return double.tryParse(v?.toString() ?? '') ?? 0;
 }
 
@@ -68,5 +73,69 @@ DateTime? pickTime(Map<String, dynamic> m, List<String> keys) {
 
 List<dynamic> pickList(Map<String, dynamic> m, List<String> keys) {
   final v = pick(m, keys);
-  return v is List ? v : const [];
+  if (v is List) return v;
+  if (v is String) {
+    final t = v.trim();
+    if (t.startsWith('[')) {
+      try {
+        final d = jsonDecode(t);
+        if (d is List) return d;
+      } catch (_) {}
+    }
+  }
+  return const [];
+}
+
+Map<String, dynamic>? tryJsonMap(dynamic v) {
+  if (v is Map) return Map<String, dynamic>.from(v);
+  if (v is String) {
+    final t = v.trim();
+    if (t.startsWith('{')) {
+      try {
+        final d = jsonDecode(t);
+        if (d is Map) return Map<String, dynamic>.from(d);
+      } catch (_) {}
+    }
+  }
+  return null;
+}
+
+String friendlyPublicSummary({
+  required String platform,
+  Map<String, dynamic>? payload,
+  String orderNo = '',
+  String fallback = '',
+}) {
+  if (payload != null) {
+    final order = pickStr(payload, [
+      'order_sn',
+      'orderSn',
+      'OrderNo',
+      'order_no',
+      'order_id',
+      'OrderId',
+      'MarketplaceOrderId',
+      'marketplaceOrderId',
+    ], or: orderNo);
+    final status = pickStr(payload, ['order_status', 'orderStatus', 'Status', 'status'], or: '');
+    final lines = <String>[];
+    if (platform.isNotEmpty) lines.add(platform);
+    if (order.isNotEmpty && order != '-') lines.add('Order: $order');
+    if (status.isNotEmpty && status != '-') lines.add('Status: $status');
+    if (lines.length >= 2) return lines.join('\n');
+  }
+
+  final text = fallback.trim();
+  if (text.isEmpty || text == '-') return '-';
+  return redactSecretsInText(text);
+}
+
+String redactSecretsInText(String raw) {
+  return raw.replaceAllMapped(
+    RegExp(
+      r'(access_token|refresh_token|token|password|secret|partner_key|api_key|authorization)\s*[:=]\s*("[^"]*"|\S+)',
+      caseSensitive: false,
+    ),
+    (m) => '${m[1]}: ***',
+  );
 }

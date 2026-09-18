@@ -231,7 +231,7 @@ class _Card extends StatelessWidget {
           width: double.infinity,
           height: 44,
           child: OutlinedButton.icon(
-            onPressed: () => _confirmDisconnect(context, s.channel),
+            onPressed: ShopStore.instance.loading ? null : () => _confirmDisconnect(context, s.channel),
             style: OutlinedButton.styleFrom(
               foregroundColor: Pal.err,
               side: const BorderSide(color: Pal.err),
@@ -247,7 +247,7 @@ class _Card extends StatelessWidget {
           width: double.infinity,
           height: 44,
           child: OutlinedButton.icon(
-            onPressed: () => _confirmDisconnect(context, s.channel),
+            onPressed: ShopStore.instance.loading ? null : () => _confirmDisconnect(context, s.channel),
             style: OutlinedButton.styleFrom(
               foregroundColor: Pal.err,
               side: const BorderSide(color: Pal.err),
@@ -323,21 +323,34 @@ class _Card extends StatelessWidget {
   Future<void> _confirmDisconnect(BuildContext context, Channel channel) async {
     final ok = await showDialog<bool>(
       context: context,
+      useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         title: Text('ยกเลิกการเชื่อมต่อ ${channel.label}'),
         content: const Text('ร้านค้าจะหยุดซิงค์คำสั่งซื้อและสินค้าจนกว่าจะเชื่อมต่อใหม่'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(false),
+            child: const Text('ไม่'),
+          ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Pal.err),
-            child: const Text('ยืนยัน'),
+            onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Pal.err, foregroundColor: Colors.white),
+            child: const Text('ยืนยันยกเลิกการเชื่อมต่อ'),
           ),
         ],
       ),
     );
-    if (ok != true || !context.mounted) return;
+    if (ok != true) return;
     await ShopStore.instance.disconnect(channel);
+    if (!context.mounted) return;
+    final store = ShopStore.instance;
+    if (store.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(store.error!), backgroundColor: Pal.err));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(store.success ?? 'ยกเลิกการเชื่อมต่อ ${channel.label} แล้ว'), backgroundColor: Pal.ok),
+      );
+    }
   }
 }
 
