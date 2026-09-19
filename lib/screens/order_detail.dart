@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../format.dart';
-import '../stores.dart';
-import '../theme.dart';
+import '../core/format.dart';
+import '../stores/stores.dart';
+import '../app/theme.dart';
 import '../widgets/ui.dart';
 
 class OrderDetailScreen extends StatelessWidget {

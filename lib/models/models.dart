@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'json_util.dart';
-import 'theme.dart';
+import '../core/json_util.dart';
+import '../app/theme.dart';
 
 enum Channel { shopee, tiktok, lazada }
 

@@ -1,18 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
-import 'api.dart';
-import 'screens/connect.dart';
-import 'screens/home.dart';
-import 'screens/inventory.dart';
-import 'screens/login.dart';
-import 'screens/order_detail.dart';
-import 'screens/orders.dart';
-import 'screens/products.dart';
-import 'screens/settings.dart';
-import 'screens/sync_log.dart';
+import '../core/api.dart';
+import '../screens/connect.dart';
+import '../screens/home.dart';
+import '../screens/inventory.dart';
+import '../screens/login.dart';
+import '../screens/order_detail.dart';
+import '../screens/orders.dart';
+import '../screens/products.dart';
+import '../screens/settings.dart';
+import '../screens/sync_log.dart';
 import 'session.dart';
-import 'widgets/shell.dart';
+import '../widgets/shell.dart';
 
 String _startLocation() {
   if (!kIsWeb) return '/login';

@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:web/web.dart' as web;
 
-import 'api.dart';
+import '../core/api.dart';
 
 /// ล็อกอินผ่าน Backend ที่ตรวจจากฐานข้อมูล — หน้าบ้านไม่คุย SQL ตรง
 class Session extends ChangeNotifier {

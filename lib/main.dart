@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 
-import 'routes.dart';
-import 'session.dart';
-import 'theme.dart';
+import 'app/routes.dart';
+import 'app/session.dart';
+import 'app/theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();

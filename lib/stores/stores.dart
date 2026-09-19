@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import 'api.dart';
-import 'models.dart';
+import '../core/api.dart';
+import '../models/models.dart';
 
 class ShopStore extends ChangeNotifier {
   ShopStore._();

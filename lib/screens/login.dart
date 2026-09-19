@@ -3,9 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../models.dart';
-import '../session.dart';
-import '../theme.dart';
+import '../models/models.dart';
+import '../app/session.dart';
+import '../app/theme.dart';
 import '../widgets/ui.dart';
 
 class LoginScreen extends StatefulWidget {

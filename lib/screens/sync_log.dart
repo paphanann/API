@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../format.dart';
-import '../models.dart';
-import '../stores.dart';
-import '../theme.dart';
+import '../core/format.dart';
+import '../models/models.dart';
+import '../stores/stores.dart';
+import '../app/theme.dart';
 import '../widgets/ui.dart';
 
 class SyncLogScreen extends StatefulWidget {

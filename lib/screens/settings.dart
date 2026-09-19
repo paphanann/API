@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../api.dart';
-import '../models.dart';
-import '../theme.dart';
+import '../core/api.dart';
+import '../models/models.dart';
+import '../app/theme.dart';
 import '../widgets/ui.dart';
 
 class SettingsScreen extends StatefulWidget {

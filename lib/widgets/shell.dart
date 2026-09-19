@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../session.dart';
-import '../theme.dart';
+import '../app/session.dart';
+import '../app/theme.dart';
 import 'ui.dart';
 
 const _menus = [

@@ -5,7 +5,7 @@ import 'package:web/web.dart' as web;
 
 import 'config.dart';
 import 'json_util.dart';
-import 'models.dart';
+import '../models/models.dart';
 
 class ApiException implements Exception {
   ApiException(this.message, {this.statusCode});

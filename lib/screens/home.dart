@@ -1,10 +1,10 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
-import '../format.dart';
-import '../models.dart';
-import '../stores.dart';
-import '../theme.dart';
+import '../core/format.dart';
+import '../models/models.dart';
+import '../stores/stores.dart';
+import '../app/theme.dart';
 import '../widgets/ui.dart';
 
 class HomeScreen extends StatefulWidget {
