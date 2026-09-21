@@ -6,7 +6,10 @@ dynamic pick(Map<String, dynamic> m, List<String> keys) {
       if (e.key.toLowerCase() != want.toLowerCase()) continue;
       final v = e.value;
       if (v == null) continue;
-      if (v is String && v.trim().isEmpty) continue;
+      if (v is String) {
+        final t = v.trim();
+        if (t.isEmpty || t.toLowerCase() == 'null' || t.toLowerCase() == 'undefined') continue;
+      }
       return v;
     }
   }
@@ -17,7 +20,8 @@ String pickStr(Map<String, dynamic> m, List<String> keys, {String or = '-'}) {
   final v = pick(m, keys);
   if (v == null) return or;
   final s = v.toString().trim();
-  return s.isEmpty ? or : s;
+  if (s.isEmpty || s.toLowerCase() == 'null' || s.toLowerCase() == 'undefined') return or;
+  return s;
 }
 
 double pickDouble(Map<String, dynamic> m, List<String> keys) {
@@ -52,23 +56,36 @@ DateTime? pickTime(Map<String, dynamic> m, List<String> keys) {
   final v = pick(m, keys);
   if (v == null) return null;
 
-  DateTime? dt;
   if (v is DateTime) {
-    dt = v;
-  } else if (v is num) {
+    return v.isUtc
+        ? DateTime(v.year, v.month, v.day, v.hour, v.minute, v.second, v.millisecond)
+        : v;
+  }
+
+  if (v is num) {
     final n = v.toInt();
+    DateTime? dt;
     if (n > 1000000000000) {
       dt = DateTime.fromMillisecondsSinceEpoch(n, isUtc: true);
     } else if (n > 1000000000) {
       dt = DateTime.fromMillisecondsSinceEpoch(n * 1000, isUtc: true);
     }
-  } else {
-    dt = DateTime.tryParse(v.toString());
+    return dt?.toLocal();
   }
 
+  final raw = v.toString().trim();
+  final dt = DateTime.tryParse(raw);
   if (dt == null) return null;
-  // API ส่ง UTC (เช่น ...Z) — แปลงเป็นเวลาเครื่องผู้ใช้ก่อนแสดง
-  return dt.isUtc ? dt.toLocal() : dt;
+
+  // มี offset จริง เช่น +07:00
+  final hasOffset = RegExp(r'[+-]\d{2}:\d{2}$').hasMatch(raw);
+  if (hasOffset) return dt.toLocal();
+
+  // SQL DATETIME / สตริงติด Z ปลอม — ใช้ตัวเลขนาฬิกาตามที่ส่ง ไม่ +7 ซ้ำ
+  if (dt.isUtc) {
+    return DateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.millisecond);
+  }
+  return dt;
 }
 
 List<dynamic> pickList(Map<String, dynamic> m, List<String> keys) {

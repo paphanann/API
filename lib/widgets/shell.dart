@@ -3,6 +3,9 @@ import 'package:go_router/go_router.dart';
 
 import '../app/session.dart';
 import '../app/theme.dart';
+import '../core/api.dart';
+import '../stores/stores.dart';
+import 'sync_status.dart';
 import 'ui.dart';
 
 const _menus = [
@@ -10,7 +13,7 @@ const _menus = [
   ('/orders', 'คำสั่งซื้อ', Icons.receipt_long_rounded),
   ('/products', 'สินค้า', Icons.inventory_2_outlined),
   ('/inventory', 'คลังสินค้า', Icons.warehouse_outlined),
-  ('/connections', 'การเชื่อมต่อ', Icons.link_rounded),
+  ('/connections', 'การเชื่อมต่อ marketplace', Icons.link_rounded),
   ('/sync-log', 'Sync Log', Icons.sync_rounded),
   ('/settings', 'ตั้งค่า', Icons.settings_outlined),
 ];
@@ -26,22 +29,35 @@ class AppShell extends StatelessWidget {
     final path = GoRouterState.of(context).uri.path;
     final title = _title(path);
     final wide = MediaQuery.sizeOf(context).width >= 960;
+    const side = 248.0;
+    const top = 68.0;
 
     if (wide) {
       return Scaffold(
         backgroundColor: Pal.bg,
-        body: Row(
-          children: [
-            SideMenu(session: session),
-            Expanded(
-              child: Column(
+        body: LayoutBuilder(
+          builder: (context, box) {
+            final size = MediaQuery.sizeOf(context);
+            final w = box.maxWidth.isFinite && box.maxWidth > 0 ? box.maxWidth : size.width;
+            final h = box.maxHeight.isFinite && box.maxHeight > 0 ? box.maxHeight : size.height;
+            return SizedBox(
+              width: w,
+              height: h,
+              child: Stack(
                 children: [
-                  TopBar(title: title, session: session),
-                  Expanded(child: child),
+                  Positioned(left: 0, top: 0, bottom: 0, width: side, child: SideMenu(session: session)),
+                  Positioned(left: side, top: 0, right: 0, height: top, child: TopBar(title: title, session: session)),
+                  Positioned(
+                    left: side,
+                    top: top,
+                    right: 0,
+                    bottom: 0,
+                    child: ColoredBox(color: Pal.bg, child: child),
+                  ),
                 ],
               ),
-            ),
-          ],
+            );
+          },
         ),
       );
     }
@@ -49,21 +65,44 @@ class AppShell extends StatelessWidget {
     return Scaffold(
       backgroundColor: Pal.bg,
       drawer: Drawer(
-        width: 248,
+        width: side,
         backgroundColor: Pal.sidebar,
-        child: SideMenu(session: session),
+        child: SideMenu(session: session, onPick: () => Navigator.of(context).maybePop()),
       ),
-      body: Column(
-        children: [
-          Builder(
-            builder: (ctx) => TopBar(
-              title: title,
-              session: session,
-              onMenu: () => Scaffold.of(ctx).openDrawer(),
+      body: LayoutBuilder(
+        builder: (context, box) {
+          final size = MediaQuery.sizeOf(context);
+          final w = box.maxWidth.isFinite && box.maxWidth > 0 ? box.maxWidth : size.width;
+          final h = box.maxHeight.isFinite && box.maxHeight > 0 ? box.maxHeight : size.height;
+          return SizedBox(
+            width: w,
+            height: h,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  right: 0,
+                  height: top,
+                  child: Builder(
+                    builder: (ctx) => TopBar(
+                      title: title,
+                      session: session,
+                      onMenu: () => Scaffold.of(ctx).openDrawer(),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  top: top,
+                  right: 0,
+                  bottom: 0,
+                  child: ColoredBox(color: Pal.bg, child: child),
+                ),
+              ],
             ),
-          ),
-          Expanded(child: child),
-        ],
+          );
+        },
       ),
     );
   }
@@ -76,7 +115,7 @@ class AppShell extends StatelessWidget {
     if (path == '/inventory') return '';
     if (path.startsWith('/products')) return 'สินค้า';
     if (path.startsWith('/inventory')) return 'คลังสินค้า';
-    if (path.startsWith('/connections') || path.startsWith('/integration')) return 'การเชื่อมต่อ';
+    if (path.startsWith('/connections') || path.startsWith('/integration')) return 'การเชื่อมต่อ marketplace';
     if (path.startsWith('/sync-log/')) return 'Error Detail';
     if (path.startsWith('/sync-log')) return 'Sync Log';
     if (path.startsWith('/settings')) return 'ตั้งค่า';
@@ -115,9 +154,10 @@ class SideMenu extends StatelessWidget {
               child: Text('Marketplace Integration', style: TextStyle(color: Colors.white54, fontSize: 11)),
             ),
           ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 for (final m in _menus)
                   _tile(
@@ -125,8 +165,11 @@ class SideMenu extends StatelessWidget {
                     label: m.$2,
                     selected: _on(loc, m.$1),
                     onTap: () {
-                      context.go(m.$1);
+                      final to = m.$1;
                       onPick?.call();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (context.mounted) context.go(to);
+                      });
                     },
                   ),
                 Padding(
@@ -146,6 +189,7 @@ class SideMenu extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 24),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Container(
@@ -182,11 +226,14 @@ class SideMenu extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 4),
       child: Material(
         color: selected ? Pal.sidebarActive : Colors.transparent,
+        type: selected ? MaterialType.canvas : MaterialType.transparency,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
           hoverColor: Pal.sidebarHover,
+          splashColor: Colors.white24,
+          highlightColor: Colors.white10,
           child: Container(
             height: 44,
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -194,9 +241,10 @@ class SideMenu extends StatelessWidget {
               children: [
                 Icon(icon, color: danger ? c : (selected ? Colors.white : Colors.white60), size: 20),
                 const SizedBox(width: 12),
-                Expanded(
+                Flexible(
                   child: Text(
                     label,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: c, fontWeight: selected ? FontWeight.w600 : FontWeight.w500, fontSize: 14),
                   ),
                 ),
@@ -231,26 +279,28 @@ class TopBar extends StatelessWidget {
         children: [
           if (onMenu != null) IconButton(onPressed: onMenu, icon: const Icon(Icons.menu_rounded)),
           Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-          const Spacer(),
+          const SizedBox(width: 12),
+          const Expanded(child: SizedBox.shrink()),
           IconButton(
             onPressed: () {
+              ShopStore.instance.load();
+              SyncLogStore.instance.load();
               showDialog<void>(
                 context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('การแจ้งเตือน'),
-                  content: const Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.check_circle, color: Pal.ok), title: Text('Sync สำเร็จ 3 รายการ')),
-                      ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.warning_amber_rounded, color: Pal.warn), title: Text('Shopee รออนุมัติ Partner')),
-                      ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.error_outline, color: Pal.err), title: Text('Lazada ยังไม่ได้เชื่อมต่อ')),
-                    ],
+                builder: (ctx) => FutureBuilder(
+                  future: Api.getSettings(),
+                  builder: (ctx, snap) => AlertDialog(
+                    title: const Text('การแจ้งเตือน'),
+                    content: SizedBox(
+                      width: 320,
+                      child: SyncStatusBody(autoSync: snap.data?.autoSync),
+                    ),
+                    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ปิด'))],
                   ),
-                  actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ปิด'))],
                 ),
               );
             },
-            icon: const Badge(smallSize: 8, child: Icon(Icons.notifications_none_rounded)),
+            icon: const Icon(Icons.notifications_none_rounded),
           ),
           const SizedBox(width: 8),
           PopupMenuButton<String>(

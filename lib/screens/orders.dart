@@ -6,6 +6,7 @@ import '../core/format.dart';
 import '../models/models.dart';
 import '../stores/stores.dart';
 import '../app/theme.dart';
+import '../widgets/sync_status.dart';
 import '../widgets/ui.dart';
 
 class OrdersScreen extends StatefulWidget {
@@ -32,7 +33,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final today = _dateOnly(DateTime.now());
     _to = today;
     _from = today.subtract(const Duration(days: 30));
-    OrderStore.instance.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) OrderStore.instance.load();
+    });
   }
 
   @override
@@ -67,8 +70,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       await MarketplaceSyncStore.instance.syncNow(force: false);
       await OrderStore.instance.load(platform: platform);
       if (!mounted) return;
-      final msg = MarketplaceSyncStore.instance.lastMessage ?? 'Sync สำเร็จ';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await showSystemStatusSnack(context);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -231,6 +233,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ],
                     const SizedBox(height: 16),
                     FillTable(
+                      minWidth: 1280,
                       child: DataTable(
                         headingRowColor: tableHeadBg,
                         headingTextStyle: tableHead,

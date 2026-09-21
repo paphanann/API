@@ -5,6 +5,7 @@ import '../core/format.dart';
 import '../models/models.dart';
 import '../stores/stores.dart';
 import '../app/theme.dart';
+import '../widgets/sync_status.dart';
 import '../widgets/ui.dart';
 
 class ProductsScreen extends StatefulWidget {
@@ -31,7 +32,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final today = dateOnly(DateTime.now());
     _to = today;
     _from = today.subtract(const Duration(days: 30));
-    ProductStore.instance.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ProductStore.instance.load();
+    });
   }
 
   @override
@@ -59,12 +62,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Future<void> _syncNow() async {
     final platform = _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform;
     try {
-      await MarketplaceSyncStore.instance.syncNow(force: true);
+      await MarketplaceSyncStore.instance.syncNow(force: false);
       await ProductStore.instance.load(platform: platform);
       await InventoryStore.instance.load();
       if (!mounted) return;
-      final msg = MarketplaceSyncStore.instance.lastMessage ?? 'Sync สำเร็จ';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await showSystemStatusSnack(context);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -228,15 +230,22 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       const LinearProgressIndicator(minHeight: 3),
                     ],
                     const SizedBox(height: 16),
-                    FillTable(
-                      minWidth: 1560,
-                      child: Column(
-                        children: [
-                          _header(),
-                          const Divider(height: 1),
-                          for (final p in rows) _ProductBlock(p),
-                        ],
-                      ),
+                    LayoutBuilder(
+                      builder: (context, box) {
+                        return _TableViewport(
+                          width: box.maxWidth,
+                          child: FillTable(
+                            minWidth: 1560,
+                            child: Column(
+                              children: [
+                                _header(),
+                                const Divider(height: 1),
+                                for (final p in rows) _ProductBlock(p),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
                     if (rows.isEmpty && !busy)
                       const Padding(
@@ -401,25 +410,33 @@ class _ProductBlockState extends State<_ProductBlock> {
           ),
         ),
         if (_open && p.hasVariants)
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.fromLTRB(36, 0, 8, 12),
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Pal.line),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 8),
-                  child: Text('รายการสินค้าย่อย (Variant)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                ),
-                FillTable(
-                  minWidth: 980,
-                  child: DataTable(
+          Builder(
+            builder: (context) {
+              final viewW = _TableViewport.maybeOf(context);
+              final innerW = viewW == null ? null : (viewW - 44).clamp(280.0, 4000.0);
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: innerW,
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(36, 0, 8, 12),
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Pal.line),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 8),
+                          child: Text('รายการสินค้าย่อย (Variant)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                        ),
+                        FillTable(
+                          minWidth: 1200,
+                          viewportWidth: innerW == null ? null : (innerW - 24).clamp(240.0, 4000.0),
+                          child: DataTable(
                     headingRowColor: tableHeadBg,
                     headingTextStyle: tableHead,
                     columnSpacing: 24,
@@ -457,9 +474,13 @@ class _ProductBlockState extends State<_ProductBlock> {
                         ),
                     ],
                   ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ],
-            ),
+              );
+            },
           ),
         const Divider(height: 1),
       ],
@@ -485,4 +506,17 @@ class _ProductBlockState extends State<_ProductBlock> {
       ),
     );
   }
+}
+
+class _TableViewport extends InheritedWidget {
+  const _TableViewport({required this.width, required super.child});
+
+  final double width;
+
+  static double? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<_TableViewport>()?.width;
+  }
+
+  @override
+  bool updateShouldNotify(_TableViewport oldWidget) => oldWidget.width != width;
 }

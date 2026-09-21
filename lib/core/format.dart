@@ -5,6 +5,7 @@ final nFmt = NumberFormat('#,##0');
 final dtFmt = DateFormat('dd/MM/yyyy HH:mm');
 final dtSec = DateFormat('dd/MM/yyyy HH:mm:ss');
 final dayFmt = DateFormat('dd/MM/yyyy');
+final timeFmt = DateFormat('HH:mm');
 
 DateTime dateOnly(DateTime t) => DateTime(t.year, t.month, t.day);
 
@@ -15,9 +16,8 @@ bool inDayRange(DateTime? value, DateTime? from, DateTime? to) {
   return !day.isBefore(from) && !day.isAfter(to);
 }
 
-/// แสดงวันที่เวลาเป็นเวลาเครื่องผู้ใช้ (แก้เคส API ส่ง UTC)
+/// แสดงวันที่เวลา — ค่าจาก pickTime เป็นเวลาเครื่องแล้ว ไม่ต้อง toLocal ซ้ำ
 String formatDt(DateTime? value, {bool withSeconds = false}) {
   if (value == null) return '-';
-  final local = value.isUtc ? value.toLocal() : value.toLocal();
-  return (withSeconds ? dtSec : dtFmt).format(local);
+  return (withSeconds ? dtSec : dtFmt).format(value);
 }

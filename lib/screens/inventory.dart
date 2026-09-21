@@ -5,6 +5,7 @@ import '../core/format.dart';
 import '../models/models.dart';
 import '../stores/stores.dart';
 import '../app/theme.dart';
+import '../widgets/sync_status.dart';
 import '../widgets/ui.dart';
 
 class InventoryScreen extends StatefulWidget {
@@ -30,7 +31,9 @@ class _InventoryScreenState extends State<InventoryScreen> {
     final today = dateOnly(DateTime.now());
     _to = today;
     _from = today.subtract(const Duration(days: 30));
-    InventoryStore.instance.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) InventoryStore.instance.load();
+    });
   }
 
   @override
@@ -62,8 +65,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         platform: _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform,
       );
       if (!mounted) return;
-      final msg = MarketplaceSyncStore.instance.lastMessage ?? 'Sync สำเร็จ';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await showSystemStatusSnack(context);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -209,7 +211,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     ],
                     const SizedBox(height: 16),
                     FillTable(
-                      minWidth: 1180,
+                      minWidth: 1280,
                       child: DataTable(
                         headingRowColor: tableHeadBg,
                         headingTextStyle: tableHead,

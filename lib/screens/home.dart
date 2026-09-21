@@ -1,4 +1,5 @@
-import 'package:fl_chart/fl_chart.dart';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../core/format.dart';
@@ -18,7 +19,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    DashStore.instance.load();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) DashStore.instance.load();
+    });
   }
 
   @override
@@ -53,17 +56,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     StatCard(title: 'สำเร็จแล้ว', value: nFmt.format(d.successOrders), icon: Icons.check_circle_outline, color: Pal.ok),
                     StatCard(title: 'ช่องทางที่เชื่อมต่อ', value: '${d.connected}', icon: Icons.hub_outlined, color: const Color(0xFF0F172A), dark: true),
                   ];
-                  if (c.maxWidth >= 1100) {
-                    return Row(
-                      children: [
-                        for (var i = 0; i < cards.length; i++) ...[
-                          if (i > 0) const SizedBox(width: 16),
-                          Expanded(child: cards[i]),
-                        ],
-                      ],
-                    );
-                  }
-                  final w = c.maxWidth >= 640 ? (c.maxWidth - 16) / 2 : c.maxWidth;
+                  final w = c.maxWidth.isFinite && c.maxWidth > 0
+                      ? (c.maxWidth >= 640 ? (c.maxWidth - 16) / 2 : c.maxWidth)
+                      : 320.0;
                   return Wrap(
                     spacing: 16,
                     runSpacing: 16,
@@ -72,23 +67,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
               const SizedBox(height: 20),
-              LayoutBuilder(
-                builder: (context, c) {
-                  final line = Panel(title: 'สรุปคำสั่งซื้อ 7 วันล่าสุด', child: SizedBox(height: 280, child: _Trend(d)));
-                  final pie = Panel(title: 'สัดส่วนคำสั่งซื้อ', child: SizedBox(height: 280, child: _Share(d)));
-                  if (c.maxWidth < 980) {
-                    return Column(children: [line, const SizedBox(height: 16), pie]);
-                  }
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 3, child: line),
-                      const SizedBox(width: 16),
-                      Expanded(flex: 2, child: pie),
-                    ],
-                  );
-                },
-              ),
+              Panel(title: 'สรุปคำสั่งซื้อ 7 วันล่าสุด', child: SizedBox(height: 280, child: _Trend(d))),
+              const SizedBox(height: 16),
+              Panel(title: 'สัดส่วนคำสั่งซื้อ', child: SizedBox(height: 280, child: _Share(d))),
             ],
           ),
         );
@@ -104,9 +85,14 @@ class _Trend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final series = [d.shopeeWeek, d.tiktokWeek, d.lazadaWeek];
-    final n = series.map((s) => s.length).fold<int>(0, (a, b) => a > b ? a : b);
-    final maxY = [for (final s in series) ...s].fold<double>(0, (a, b) => a > b ? a : b);
+    final series = <(List<double>, Color)>[
+      (d.shopeeWeek, Pal.shopee),
+      (d.tiktokWeek, Pal.tiktok),
+      (d.lazadaWeek, Pal.lazada),
+    ].where((s) => s.$1.isNotEmpty).toList();
+    final values = [for (final s in series) ...s.$1].where((v) => v.isFinite);
+    final peak = values.fold<double>(0, (a, b) => a > b ? a : b);
+    final maxY = peak < 10 ? 10.0 : peak * 1.2;
     return Column(
       children: [
         const Wrap(
@@ -119,73 +105,109 @@ class _Trend extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 12),
-        Expanded(
-          child: n == 0
+        SizedBox(
+          height: 220,
+          width: double.infinity,
+          child: series.isEmpty
               ? const Center(child: Text('ไม่พบข้อมูล', style: TextStyle(color: Pal.muted)))
-              : LineChart(
-                  LineChartData(
-                    minY: 0,
-                    maxY: maxY < 10 ? 10 : maxY * 1.2,
-                    gridData: FlGridData(
-                      drawVerticalLine: false,
-                      getDrawingHorizontalLine: (_) => const FlLine(color: Pal.line, strokeWidth: 1),
-                    ),
-                    borderData: FlBorderData(show: false),
-                    titlesData: FlTitlesData(
-                      topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 32,
-                          getTitlesWidget: (v, _) => Text(v.toInt().toString(), style: const TextStyle(fontSize: 11, color: Pal.muted)),
-                        ),
-                      ),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          interval: 1,
-                          getTitlesWidget: (v, _) {
-                            final i = v.toInt();
-                            if (i < 0 || i >= d.weekLabels.length) return const SizedBox.shrink();
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(d.weekLabels[i], style: const TextStyle(fontSize: 11, color: Pal.muted)),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                    lineTouchData: LineTouchData(touchTooltipData: LineTouchTooltipData(getTooltipColor: (_) => Pal.sidebar)),
-                    lineBarsData: [
-                      LineChartBarData(
-                        spots: [for (var i = 0; i < d.shopeeWeek.length; i++) FlSpot(i.toDouble(), d.shopeeWeek[i])],
-                        isCurved: true,
-                        color: Pal.shopee,
-                        barWidth: 3,
-                        belowBarData: BarAreaData(show: true, color: Pal.shopee.withValues(alpha: 0.08)),
-                      ),
-                      LineChartBarData(
-                        spots: [for (var i = 0; i < d.tiktokWeek.length; i++) FlSpot(i.toDouble(), d.tiktokWeek[i])],
-                        isCurved: true,
-                        color: Pal.tiktok,
-                        barWidth: 3,
-                        belowBarData: BarAreaData(show: true, color: Pal.tiktok.withValues(alpha: 0.05)),
-                      ),
-                      LineChartBarData(
-                        spots: [for (var i = 0; i < d.lazadaWeek.length; i++) FlSpot(i.toDouble(), d.lazadaWeek[i])],
-                        isCurved: true,
-                        color: Pal.lazada,
-                        barWidth: 3,
-                        belowBarData: BarAreaData(show: true, color: Pal.lazada.withValues(alpha: 0.05)),
-                      ),
-                    ],
+              : CustomPaint(
+                  painter: _TrendPainter(
+                    labels: d.weekLabels,
+                    series: series,
+                    maxY: maxY,
                   ),
                 ),
         ),
       ],
     );
   }
+}
+
+class _TrendPainter extends CustomPainter {
+  _TrendPainter({
+    required this.labels,
+    required this.series,
+    required this.maxY,
+  });
+
+  final List<String> labels;
+  final List<(List<double>, Color)> series;
+  final double maxY;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const left = 36.0;
+    const bottom = 28.0;
+    const top = 8.0;
+    const right = 8.0;
+    final w = size.width - left - right;
+    final h = size.height - top - bottom;
+    if (w <= 0 || h <= 0 || !maxY.isFinite || maxY <= 0) return;
+
+    final grid = Paint()
+      ..color = Pal.line
+      ..strokeWidth = 1;
+    const rows = 4;
+    for (var i = 0; i <= rows; i++) {
+      final y = top + h * i / rows;
+      canvas.drawLine(Offset(left, y), Offset(left + w, y), grid);
+      final tp = TextPainter(
+        text: TextSpan(
+          text: (maxY * (1 - i / rows)).round().toString(),
+          style: const TextStyle(fontSize: 11, color: Pal.muted),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(left - 6 - tp.width, y - tp.height / 2));
+    }
+
+    final n = series.map((s) => s.$1.length).fold<int>(0, (a, b) => a > b ? a : b);
+    if (n == 0) return;
+
+    Offset at(int i, double raw) {
+      final v = raw.isFinite ? raw.clamp(0, maxY) : 0.0;
+      final x = n == 1 ? left + w / 2 : left + w * i / (n - 1);
+      final y = top + h * (1 - v / maxY);
+      return Offset(x, y);
+    }
+
+    for (final s in series) {
+      if (s.$1.isEmpty) continue;
+      final path = Path();
+      for (var i = 0; i < s.$1.length; i++) {
+        final p = at(i, s.$1[i]);
+        if (i == 0) {
+          path.moveTo(p.dx, p.dy);
+        } else {
+          path.lineTo(p.dx, p.dy);
+        }
+      }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = s.$2
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..strokeJoin = StrokeJoin.round
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    final count = labels.isEmpty ? n : math.min(labels.length, n);
+    for (var i = 0; i < count; i++) {
+      final text = labels.isEmpty ? '${i + 1}' : labels[i];
+      final tp = TextPainter(
+        text: TextSpan(text: text, style: const TextStyle(fontSize: 11, color: Pal.muted)),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final x = (n == 1 ? left + w / 2 : left + w * i / (n - 1)) - tp.width / 2;
+      tp.paint(canvas, Offset(x.clamp(0, size.width - tp.width), top + h + 8));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendPainter old) =>
+      old.labels != labels || old.series != series || old.maxY != maxY;
 }
 
 class _Share extends StatelessWidget {
@@ -199,32 +221,19 @@ class _Share extends StatelessWidget {
       (d.shopeeShare, Pal.shopee, 'Shopee'),
       (d.tiktokShare, Pal.tiktok, 'TikTok Shop'),
       (d.lazadaShare, Pal.lazada, 'Lazada'),
-    ].where((e) => e.$1 > 0).toList();
+    ].where((e) => e.$1.isFinite && e.$1 > 0).toList();
     if (slices.isEmpty) {
       return const Center(child: Text('ไม่พบข้อมูล', style: TextStyle(color: Pal.muted)));
     }
     return Row(
       children: [
-        Expanded(
-          child: PieChart(
-            PieChartData(
-              sectionsSpace: 3,
-              centerSpaceRadius: 52,
-              startDegreeOffset: -90,
-              sections: [
-                for (final e in slices)
-                  PieChartSectionData(
-                    value: e.$1,
-                    color: e.$2,
-                    title: '${e.$1.toStringAsFixed(0)}%',
-                    radius: 42,
-                    titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
-                  ),
-              ],
-            ),
-          ),
+        SizedBox(
+          width: 180,
+          height: 180,
+          child: CustomPaint(painter: _PiePainter(slices)),
         ),
         Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -237,6 +246,54 @@ class _Share extends StatelessWidget {
       ],
     );
   }
+}
+
+class _PiePainter extends CustomPainter {
+  _PiePainter(this.slices);
+
+  final List<(double, Color, String)> slices;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final r = math.min(size.width, size.height) / 2;
+    if (r < 8) return;
+    final total = slices.fold<double>(0, (a, b) => a + b.$1);
+    if (!total.isFinite || total <= 0) return;
+
+    var start = -math.pi / 2;
+    final rect = Rect.fromCircle(center: center, radius: r);
+    for (final s in slices) {
+      final sweep = (s.$1 / total) * 2 * math.pi;
+      canvas.drawArc(rect, start, sweep - 0.02, true, Paint()..color = s.$2);
+      start += sweep;
+    }
+    canvas.drawCircle(center, r * 0.55, Paint()..color = Colors.white);
+
+    start = -math.pi / 2;
+    for (final s in slices) {
+      final sweep = (s.$1 / total) * 2 * math.pi;
+      if (sweep > 0.4) {
+        final mid = start + sweep / 2;
+        final labelR = r * 0.78;
+        final tp = TextPainter(
+          text: TextSpan(
+            text: '${s.$1.toStringAsFixed(0)}%',
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(
+          canvas,
+          Offset(center.dx + math.cos(mid) * labelR - tp.width / 2, center.dy + math.sin(mid) * labelR - tp.height / 2),
+        );
+      }
+      start += sweep;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PiePainter old) => old.slices != slices;
 }
 
 class _Dot extends StatelessWidget {

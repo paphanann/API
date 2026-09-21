@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 // สีหลักตาม mockup
 class Pal {
@@ -34,11 +33,11 @@ ThemeData buildTheme() {
 
   final scheme = ColorScheme.fromSeed(seedColor: Pal.primary, primary: Pal.primary).copyWith(
     surface: Colors.white,
-    surfaceContainer: Colors.white,
-    surfaceContainerHigh: Colors.white,
-    surfaceContainerHighest: Colors.white,
-    surfaceContainerLow: Colors.white,
     surfaceContainerLowest: Colors.white,
+    surfaceContainerLow: const Color(0xFFF8FAFC),
+    surfaceContainer: Pal.bg,
+    surfaceContainerHigh: const Color(0xFFEEF2F6),
+    surfaceContainerHighest: Pal.line,
     surfaceTint: Colors.transparent,
   );
 
@@ -49,9 +48,12 @@ ThemeData buildTheme() {
     cardColor: Colors.white,
     scaffoldBackgroundColor: Pal.bg,
     applyElevationOverlayColor: false,
+    splashColor: Pal.primary.withValues(alpha: 0.12),
+    highlightColor: Pal.primary.withValues(alpha: 0.08),
+    hoverColor: Pal.primary.withValues(alpha: 0.06),
   );
 
-  final text = GoogleFonts.promptTextTheme(base.textTheme).apply(
+  final text = base.textTheme.apply(
     bodyColor: Pal.text,
     displayColor: Pal.text,
   );

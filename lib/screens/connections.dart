@@ -47,7 +47,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
     Api.clearOAuthReturn();
 
     // โหลดจาก GET /api/connections หลัง Authorize — ถ้า success แต่ยังว่าง ให้ลองอีกครั้งสั้นๆ
-    await ShopStore.instance.load();
+    await Future.wait([
+      ShopStore.instance.load(),
+      SyncLogStore.instance.load(),
+    ]);
     if (status == 'success' && mounted) {
       final anyLive = ShopStore.instance.shops.any((s) => s.connected);
       if (!anyLive) {
@@ -62,7 +65,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
     } else if (status == 'success') {
       final anyLive = ShopStore.instance.shops.any((s) => s.connected);
       if (anyLive) {
-        ShopStore.instance.setSuccess(hint.isNotEmpty ? hint : 'เชื่อมต่อสำเร็จ');
+        ShopStore.instance.setSuccess('เชื่อมต่อสำเร็จ');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('เชื่อมต่อสำเร็จ'), backgroundColor: Pal.ok),
         );
@@ -73,7 +76,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
       }
     }
     if (fromOAuth && (status == 'success' || status == 'error')) {
-      context.go('/connections');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.go('/connections');
+      });
     }
   }
 

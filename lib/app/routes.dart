@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/api.dart';
-import '../screens/connect.dart';
+import '../screens/connections.dart';
 import '../screens/home.dart';
 import '../screens/inventory.dart';
 import '../screens/login.dart';

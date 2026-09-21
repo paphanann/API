@@ -69,7 +69,7 @@ class Api {
   static List<dynamic> _list(dynamic json) {
     if (json is List) return json;
     if (json is Map) {
-      for (final key in ['data', 'connections', 'orders', 'logs', 'items', 'result', 'products', 'inventory', 'stocks', 'warehouses', 'rows', 'value', 'list']) {
+      for (final key in ['data', 'connections', 'orders', 'logs', 'items', 'result', 'products', 'inventory', 'stocks', 'warehouses', 'rows', 'value', 'list', 'users', 'accounts']) {
         final v = json[key];
         if (v is List) return v;
         if (v is Map) {
@@ -155,13 +155,87 @@ class Api {
     return AppSettings.blank();
   }
 
-  static Future<void> saveSettings(AppSettings settings) async {
+  static Future<void> saveSettings(AppSettings settings, {String? password}) async {
     final res = await _send(http.put(
       _u('/api/settings'),
       headers: _headers(json: true),
-      body: jsonEncode(settings.toJson()),
+      body: jsonEncode(settings.toJson(password: password)),
     ));
     await _json(res);
+  }
+
+  static Future<String> testErp(AppSettings settings, {String? password}) async {
+    final res = await _send(http.post(
+      _u('/api/settings/test-erp'),
+      headers: _headers(json: true),
+      body: jsonEncode(settings.toJson(password: password)),
+    ));
+    final data = await _json(res);
+    if (data is Map) {
+      return pickStr(Map<String, dynamic>.from(data), ['message', 'Message'], or: 'เชื่อมต่อสำเร็จ');
+    }
+    return 'เชื่อมต่อสำเร็จ';
+  }
+
+  static Future<List<StaffUser>> getUsers() async {
+    for (final path in ['/api/users', '/api/settings/users']) {
+      try {
+        final res = await _send(http.get(_u(path), headers: _headers()));
+        if (res.statusCode == 404) continue;
+        final rows = _list(await _json(res));
+        return [for (final row in rows) if (row is Map) StaffUser.fromApi(Map<String, dynamic>.from(row))];
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) continue;
+        rethrow;
+      }
+    }
+    return [];
+  }
+
+  static Future<StaffUser> saveUser(StaffUser user, {String? password}) async {
+    final creating = user.id.isEmpty || user.id == '-';
+    final body = jsonEncode(user.toJson(password: password));
+    ApiException? last;
+    for (final base in ['/api/users', '/api/settings/users']) {
+      try {
+        final uri = creating ? _u(base) : _u('$base/${Uri.encodeComponent(user.apiKey)}');
+        final res = await _send(
+          creating
+              ? http.post(uri, headers: _headers(json: true), body: body)
+              : http.put(uri, headers: _headers(json: true), body: body),
+        );
+        if (res.statusCode == 404) continue;
+        final data = await _json(res);
+        if (data is Map) return StaffUser.fromApi(Map<String, dynamic>.from(data));
+        return user;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) {
+          last = e;
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw last ?? ApiException('ไม่สามารถบันทึกผู้ใช้งานได้');
+  }
+
+  static Future<void> deleteUser(StaffUser user) async {
+    ApiException? last;
+    for (final base in ['/api/users', '/api/settings/users']) {
+      try {
+        final res = await _send(http.delete(_u('$base/${Uri.encodeComponent(user.apiKey)}'), headers: _headers()));
+        if (res.statusCode == 404) continue;
+        await _json(res);
+        return;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) {
+          last = e;
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw last ?? ApiException('ไม่สามารถลบผู้ใช้งานได้');
   }
 
   static Future<List<ShopConn>> getConnections() async {
@@ -185,8 +259,9 @@ class Api {
   static Future<Map<String, dynamic>> syncNow({bool force = false}) async {
     final res = await _send(
       http.post(
-        _u('/api/sync/now', force ? {'force': '1'} : null),
+        _u('/api/sync/now', force ? {'force': '1'} : {'incremental': '1'}),
         headers: _headers(json: true),
+        body: force ? '{}' : '{"incremental":true}',
       ),
     );
     final data = await _json(res);
@@ -262,12 +337,4 @@ class Api {
       token: pickStr(map, ['Token', 'token', 'accessToken', 'access_token', 'jwt'], or: ''),
     );
   }
-}
-
-class AuthUser {
-  const AuthUser({required this.email, required this.name, required this.token});
-
-  final String email;
-  final String name;
-  final String token;
 }

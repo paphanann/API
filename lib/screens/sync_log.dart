@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/api.dart';
 import '../core/format.dart';
 import '../models/models.dart';
 import '../stores/stores.dart';
 import '../app/theme.dart';
+import '../widgets/sync_status.dart';
 import '../widgets/ui.dart';
 
 class SyncLogScreen extends StatefulWidget {
@@ -15,30 +17,82 @@ class SyncLogScreen extends StatefulWidget {
 }
 
 class _SyncLogScreenState extends State<SyncLogScreen> {
+  static const _pageSize = 10;
+
   String _ch = 'all';
   String _st = 'all';
+  int _page = 1;
+  DateTime? _from;
+  DateTime? _to;
 
   @override
   void initState() {
     super.initState();
-    SyncLogStore.instance.load();
+    final today = dateOnly(DateTime.now());
+    _to = today;
+    _from = today.subtract(const Duration(days: 7));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) SyncLogStore.instance.load();
+    });
   }
 
   List<SyncRow> _rows() {
     return SyncLogStore.instance.logs.where((l) {
-      final chOk = _ch == 'all' || l.channel.name == _ch;
-      final stOk = _st == 'all' || l.status.name == _st;
-      return chOk && stOk;
+      if (_ch != 'all' && l.channel.name != _ch) return false;
+      if (_st != 'all' && l.status.name != _st) return false;
+      if (!inDayRange(l.time, _from, _to)) return false;
+      return true;
     }).toList();
+  }
+
+  Future<void> _pickRange() async {
+    final today = dateOnly(DateTime.now());
+    final picked = await showSimpleCalendar(
+      context: context,
+      from: _from ?? today.subtract(const Duration(days: 7)),
+      to: _to ?? today,
+    );
+    if (picked == null) return;
+    setState(() {
+      if (picked.cleared) {
+        _from = null;
+        _to = null;
+      } else {
+        _from = dateOnly(picked.range!.start);
+        _to = dateOnly(picked.range!.end);
+      }
+      _page = 1;
+    });
+  }
+
+  Future<void> _syncNow() async {
+    try {
+      await MarketplaceSyncStore.instance.syncNow(force: false);
+      if (!mounted) return;
+      await showSystemStatusSnack(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: SyncLogStore.instance,
+      listenable: Listenable.merge([SyncLogStore.instance, MarketplaceSyncStore.instance]),
       builder: (context, _) {
         final store = SyncLogStore.instance;
-        final rows = _rows();
+        final syncStore = MarketplaceSyncStore.instance;
+        final all = _rows();
+        final pages = (all.length / _pageSize).ceil().clamp(1, 9999);
+        if (_page > pages) _page = pages;
+        final start = (_page - 1) * _pageSize;
+        final rows = all.skip(start).take(_pageSize).toList();
+        final busy = store.loading || syncStore.syncing;
+        final fromN = all.isEmpty ? 0 : start + 1;
+        final toN = start + rows.length;
         return SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Panel(
@@ -51,10 +105,14 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                   runSpacing: 12,
                   crossAxisAlignment: WrapCrossAlignment.end,
                   children: [
+                    DateRangeField(from: _from, to: _to, onTap: _pickRange),
                     Drop<String>(
                       label: 'แพลตฟอร์ม',
                       value: _ch,
-                      onChanged: (v) => setState(() => _ch = v ?? 'all'),
+                      onChanged: (v) => setState(() {
+                        _ch = v ?? 'all';
+                        _page = 1;
+                      }),
                       items: [
                         const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
                         ...Channel.values.map((c) => DropdownMenuItem(value: c.name, child: Text(c.label))),
@@ -63,7 +121,10 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                     Drop<String>(
                       label: 'สถานะ',
                       value: _st,
-                      onChanged: (v) => setState(() => _st = v ?? 'all'),
+                      onChanged: (v) => setState(() {
+                        _st = v ?? 'all';
+                        _page = 1;
+                      }),
                       items: const [
                         DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
                         DropdownMenuItem(value: 'success', child: Text('Success')),
@@ -74,9 +135,33 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                     SizedBox(
                       height: 44,
                       child: ElevatedButton.icon(
-                        onPressed: store.loading ? null : () => SyncLogStore.instance.load(),
+                        onPressed: busy
+                            ? null
+                            : () {
+                                setState(() => _page = 1);
+                                SyncLogStore.instance.load();
+                              },
                         icon: const Icon(Icons.search, size: 18),
                         label: const Text('ค้นหา'),
+                      ),
+                    ),
+                    SizedBox(
+                      height: 44,
+                      child: OutlinedButton.icon(
+                        onPressed: busy ? null : _syncNow,
+                        icon: syncStore.syncing
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.sync_rounded, size: 18),
+                        label: Text(syncStore.syncing ? 'กำลัง Sync...' : 'Sync Now'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Pal.text,
+                          backgroundColor: Colors.white,
+                          side: const BorderSide(color: Pal.line),
+                        ),
                       ),
                     ),
                   ],
@@ -92,7 +177,7 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                     ),
                   ),
                 ],
-                if (store.loading) ...[
+                if (busy) ...[
                   const SizedBox(height: 16),
                   const LinearProgressIndicator(minHeight: 3),
                 ],
@@ -151,11 +236,22 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                     ],
                   ),
                 ),
-                if (rows.isEmpty && !store.loading)
+                if (rows.isEmpty && !busy)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 24),
                     child: Center(child: Text('ไม่พบประวัติการซิงก์')),
                   ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Text(
+                      all.isEmpty ? 'แสดง 0 รายการ' : 'แสดง $fromN - $toN จาก ${all.length} รายการ',
+                      style: const TextStyle(color: Pal.muted, fontSize: 13),
+                    ),
+                    const Spacer(),
+                    Pages(page: _page, total: pages, onTap: (p) => setState(() => _page = p)),
+                  ],
+                ),
               ],
             ),
           ),
