@@ -233,7 +233,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ],
                     const SizedBox(height: 16),
                     FillTable(
-                      minWidth: 1280,
+                      minWidth: 1480,
                       child: DataTable(
                         headingRowColor: tableHeadBg,
                         headingTextStyle: tableHead,
@@ -244,7 +244,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           DataColumn(label: Text('Platform')),
                           DataColumn(label: Text('วันที่')),
                           DataColumn(label: Text('ยอดรวม')),
-                          DataColumn(label: Text('สถานะ')),
+                          DataColumn(label: Text('สถานะออเดอร์')),
+                          DataColumn(label: Text('Sync Status')),
+                          DataColumn(label: Text('Last Sync')),
                           DataColumn(label: Text('SAP DocNum')),
                           DataColumn(label: Text('Action')),
                         ],
@@ -257,6 +259,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
                                 DataCell(Text(dtFmt.format(o.createdAt))),
                                 DataCell(Text(baht.format(o.total), style: const TextStyle(fontWeight: FontWeight.w600))),
                                 DataCell(orderPill(o.status)),
+                                DataCell(orderSyncPill(o.syncStatus.isEmpty
+                                    ? (o.sapDocNum != null && o.sapDocNum!.isNotEmpty ? 'sap_ok' : 'saved')
+                                    : o.syncStatus)),
+                                DataCell(Text(
+                                  o.lastSyncedAt == null ? '-' : dtFmt.format(o.lastSyncedAt!),
+                                  maxLines: 1,
+                                  softWrap: false,
+                                )),
                                 DataCell(Text(o.sapDocNum ?? '-')),
                                 DataCell(
                                   TextButton(
@@ -278,7 +288,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     Row(
                       children: [
                         Text(
-                          all.isEmpty ? 'แสดง 0 รายการ' : 'แสดง $fromN - $toN จาก ${all.length} รายการ',
+                          all.isEmpty
+                              ? 'แสดง 0 ออเดอร์'
+                              : 'แสดง $fromN - $toN จาก ${all.length} ออเดอร์',
                           style: const TextStyle(color: Pal.muted, fontSize: 13),
                         ),
                         const Spacer(),

@@ -32,6 +32,8 @@ class Order {
     required this.lines,
     this.listedTotal,
     this.sapDocNum,
+    this.syncStatus = '',
+    this.lastSyncedAt,
   });
 
   factory Order.fromApi(Map<String, dynamic> m) {
@@ -55,7 +57,7 @@ class Order {
       customer: pickStr(m, ['Customer', 'customer', 'CustomerName', 'CardName', 'cardName', 'buyer_username', 'Buyer', 'buyer'], or: '-'),
       phone: pickStr(m, ['Phone', 'phone', 'CustomerPhone']),
       address: pickStr(m, ['Address', 'address', 'ShippingAddress']),
-      createdAt: pickTime(m, ['CreatedAt', 'createdAt', 'CreateTime', 'order_create_time', 'Date']) ?? DateTime.now(),
+      createdAt: pickTime(m, ['OrderDate', 'orderDate', 'CreatedAt', 'createdAt', 'CreateTime', 'order_create_time', 'Date']) ?? DateTime.now(),
       status: _orderStatus(pickStr(m, ['OrderStatus', 'orderStatus', 'Status', 'status'], or: '')),
       payment: pickStr(m, ['Payment', 'payment', 'PaymentMethod']),
       shipping: pickStr(m, ['Shipping', 'shipping', 'Logistics', 'Carrier']),
@@ -67,6 +69,8 @@ class Order {
         final v = pickStr(m, ['SapDocNum', 'sapDocNum', 'DocNum', 'docNum'], or: '');
         return v.isEmpty ? null : v;
       }(),
+      syncStatus: pickStr(m, ['SyncStatus', 'syncStatus'], or: ''),
+      lastSyncedAt: pickTime(m, ['LastSyncedAt', 'lastSyncedAt', 'SyncedAt', 'syncedAt']),
     );
   }
 
@@ -82,6 +86,8 @@ class Order {
   final List<OrderLine> lines;
   final double? listedTotal;
   final String? sapDocNum;
+  final String syncStatus;
+  final DateTime? lastSyncedAt;
 
   double get total {
     if (listedTotal != null) return listedTotal!;

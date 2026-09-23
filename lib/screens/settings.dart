@@ -36,10 +36,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _database = TextEditingController();
   final _username = TextEditingController();
   final _password = TextEditingController();
-  final _cardCode = TextEditingController();
-  final _warehouse = TextEditingController();
-  final _branch = TextEditingController();
-  final _taxCode = TextEditingController();
+  String _cardCode = '';
+  String _warehouse = '';
+  String _branch = '';
+  String _taxCode = '';
+  String _onOrder = 'salesOrder';
+  String _onShip = 'delivery';
+  String _onReturn = 'return';
+  String _onRefund = 'none';
+  List<String> _cardCodes = [];
+  List<String> _warehouses = [];
+  List<String> _branches = [];
+  List<String> _taxCodes = [];
 
   String _currency = 'THB - บาทไทย';
   String _timezone = 'Asia/Bangkok (UTC+7)';
@@ -47,10 +55,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _numberFormat = '1,234.56';
   String _erp = 'SAP Business One';
   String _env = 'Sandbox';
-  bool _so = true;
-  bool _dn = true;
-  bool _re = true;
-  bool _cm = false;
   bool _auto = true;
   bool _errNoti = true;
   bool _okNoti = false;
@@ -84,10 +88,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _database.dispose();
     _username.dispose();
     _password.dispose();
-    _cardCode.dispose();
-    _warehouse.dispose();
-    _branch.dispose();
-    _taxCode.dispose();
     super.dispose();
   }
 
@@ -111,14 +111,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       autoSync: _auto,
       notifyError: _errNoti,
       notifySuccess: _okNoti,
-      createSalesOrder: _so,
-      createDelivery: _dn,
-      createReturn: _re,
-      createCreditMemo: _cm,
-      defaultCardCode: _cardCode.text.trim(),
-      defaultWarehouse: _warehouse.text.trim(),
-      defaultBranch: _branch.text.trim(),
-      defaultTax: _taxCode.text.trim(),
+      createSalesOrder: _onOrder != 'none',
+      createDelivery: _onShip != 'none',
+      createReturn: _onReturn != 'none',
+      createCreditMemo: _onRefund != 'none',
+      onMarketplaceOrder: _onOrder,
+      onShipment: _onShip,
+      onReturn: _onReturn,
+      onRefund: _onRefund,
+      defaultCardCode: _cardCode,
+      defaultWarehouse: _warehouse,
+      defaultBranch: _branch,
+      defaultTax: _taxCode,
       erpLastChecked: _erpChecked,
       logo: _logo,
     );
@@ -140,20 +144,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _endpoint.text = s.endpoint;
       _database.text = s.database;
       _username.text = s.username;
-      _cardCode.text = s.defaultCardCode;
-      _warehouse.text = s.defaultWarehouse;
-      _branch.text = s.defaultBranch;
-      _taxCode.text = s.defaultTax;
+      _cardCode = s.defaultCardCode;
+      _warehouse = s.defaultWarehouse;
+      _branch = s.defaultBranch;
+      _taxCode = s.defaultTax;
       _currency = s.currency;
       _timezone = s.timezone;
       _dateFormat = s.dateFormat;
       _numberFormat = s.numberFormat;
       _erp = s.erp;
       _env = s.environment.isEmpty ? 'Sandbox' : s.environment;
-      _so = s.createSalesOrder;
-      _dn = s.createDelivery;
-      _re = s.createReturn;
-      _cm = s.createCreditMemo;
+      _onOrder = s.onMarketplaceOrder;
+      _onShip = s.onShipment;
+      _onReturn = s.onReturn;
+      _onRefund = s.onRefund;
       _auto = s.autoSync;
       _errNoti = s.notifyError;
       _okNoti = s.notifySuccess;
@@ -169,6 +173,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {
       _users = [];
     }
+    await _loadErpOptions();
     if (mounted) setState(() => _loading = false);
   }
 
@@ -277,6 +282,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
     }
     if (mounted) setState(() => _testing = false);
+    await _loadErpOptions();
+  }
+
+  Future<void> _loadErpOptions() async {
+    try {
+      final opts = await Api.getErpOptions();
+      if (!mounted) return;
+      setState(() {
+        _cardCodes = opts.cardCodes;
+        _warehouses = opts.warehouses;
+        _branches = opts.branches;
+        _taxCodes = opts.taxCodes;
+      });
+    } catch (_) {}
   }
 
   List<String> get _roleOptions {
@@ -574,7 +593,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 14),
           Align(
             alignment: Alignment.centerRight,
-            child: OutlinedButton(
+            child: ElevatedButton(
               onPressed: _testing ? null : _testErp,
               child: Text(_testing ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อ'),
             ),
@@ -600,22 +619,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
           const SizedBox(height: 22),
           const Text('การตั้งค่าการสร้างเอกสาร', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-          const SizedBox(height: 8),
-          _check('สร้างใบสั่งขาย (Sales Order)', _so, (v) => setState(() => _so = v)),
-          _check('สร้างใบส่งของ (Delivery)', _dn, (v) => setState(() => _dn = v)),
-          _check('สร้างใบรับคืน (Return)', _re, (v) => setState(() => _re = v)),
-          _check('สร้างใบลดหนี้ (A/R Credit Memo)', _cm, (v) => setState(() => _cm = v)),
+          const SizedBox(height: 14),
+          _quad(
+            _box('เมื่อมีคำสั่งซื้อจาก Marketplace', _docDrop(_onOrder, (v) => _onOrder = v)),
+            _box('เมื่อมีคำสั่งจัดส่ง', _docDrop(_onShip, (v) => _onShip = v)),
+            _box('เมื่อมีการคืนสินค้า', _docDrop(_onReturn, (v) => _onReturn = v)),
+            _box('เมื่อมีการคืนเงิน', _docDrop(_onRefund, (v) => _onRefund = v)),
+          ),
           const SizedBox(height: 18),
           const Text('ค่าเริ่มต้น (Default)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
           const SizedBox(height: 14),
-          _pair(
-            _box('ลูกค้าเริ่มต้น (CardCode)', TextField(controller: _cardCode)),
-            _box('คลังสินค้า (WhsCode)', TextField(controller: _warehouse)),
-          ),
-          const SizedBox(height: 12),
-          _pair(
-            _box('สาขา (Branch)', TextField(controller: _branch)),
-            _box('รหัสภาษี (Tax Code)', TextField(controller: _taxCode)),
+          _quad(
+            _box('ลูกค้าเริ่มต้น (CardCode)', _codeDrop(_cardCode, _cardCodes, (v) => _cardCode = v)),
+            _box('คลังสินค้า (WhsCode)', _codeDrop(_warehouse, _warehouses, (v) => _warehouse = v)),
+            _box('สาขา (Branch)', _codeDrop(_branch, _branches, (v) => _branch = v)),
+            _box('รหัสภาษี (Tax Code)', _codeDrop(_taxCode, _taxCodes, (v) => _taxCode = v)),
           ),
           const SizedBox(height: 20),
           _saveBar(),
@@ -742,6 +760,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _quad(Widget a, Widget b, Widget c, Widget d) {
+    return LayoutBuilder(
+      builder: (context, box) {
+        final items = [a, b, c, d];
+        if (box.maxWidth < 720) {
+          return Column(
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) const SizedBox(height: 12),
+                items[i],
+              ],
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(width: 12),
+              Expanded(child: items[i]),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
   Widget _pair(Widget a, Widget b) {
     return LayoutBuilder(
       builder: (context, box) {
@@ -780,15 +825,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _check(String title, bool value, ValueChanged<bool> onChanged) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          Checkbox(value: value, onChanged: (v) => onChanged(v == true)),
-          Expanded(child: Text(title, style: const TextStyle(fontSize: 14))),
-        ],
-      ),
+  static const _docItems = [
+    ('none', 'ไม่สร้างเอกสาร'),
+    ('quotation', 'สร้างเป็น Sales Quotation'),
+    ('salesOrder', 'สร้างเป็น Sales Order'),
+    ('delivery', 'สร้างเป็น Delivery'),
+    ('return', 'สร้างเป็น Return'),
+    ('downPayment', 'สร้างเป็น A/R Down Payment Invoice'),
+    ('invoice', 'สร้างเป็น A/R Invoice'),
+    ('creditMemo', 'สร้างเป็น A/R Credit Memo'),
+  ];
+
+  Widget _docDrop(String value, ValueChanged<String> onPick) {
+    final v = _docItems.any((e) => e.$1 == value) ? value : 'none';
+    return DropdownButtonFormField<String>(
+      key: ValueKey(v),
+      initialValue: v,
+      items: [
+        for (final e in _docItems) DropdownMenuItem(value: e.$1, child: Text(e.$2, overflow: TextOverflow.ellipsis)),
+      ],
+      onChanged: (x) => setState(() => onPick(x ?? v)),
+      dropdownColor: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+    );
+  }
+
+  Widget _codeDrop(String value, List<String> items, ValueChanged<String> onPick) {
+    final unique = [
+      ...{
+        for (final x in [if (value.isNotEmpty) value, ...items])
+          if (x.isNotEmpty) x,
+      },
+    ];
+    if (unique.isEmpty) {
+      return DropdownButtonFormField<String>(
+        initialValue: '',
+        items: const [DropdownMenuItem(value: '', child: Text('ยังไม่มีข้อมูล'))],
+        onChanged: null,
+        dropdownColor: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+      );
+    }
+    final v = unique.contains(value) ? value : '';
+    return DropdownButtonFormField<String>(
+      key: ValueKey('$v-${unique.length}'),
+      initialValue: v.isEmpty ? null : v,
+      hint: const Text('เลือก'),
+      items: [for (final i in unique) DropdownMenuItem(value: i, child: Text(i))],
+      onChanged: (x) => setState(() => onPick(x ?? '')),
+      dropdownColor: Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
     );
   }
 }

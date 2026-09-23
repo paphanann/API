@@ -164,6 +164,14 @@ class Api {
     await _json(res);
   }
 
+  static Future<ErpOptions> getErpOptions() async {
+    final res = await _send(http.get(_u('/api/settings/erp-options'), headers: _headers()));
+    if (res.statusCode == 404) return const ErpOptions();
+    final data = await _json(res);
+    if (data is Map) return ErpOptions.fromApi(Map<String, dynamic>.from(data));
+    return const ErpOptions();
+  }
+
   static Future<String> testErp(AppSettings settings, {String? password}) async {
     final res = await _send(http.post(
       _u('/api/settings/test-erp'),

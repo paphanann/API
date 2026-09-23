@@ -24,6 +24,10 @@ class AppSettings {
     this.createDelivery = true,
     this.createReturn = true,
     this.createCreditMemo = false,
+    this.onMarketplaceOrder = 'salesOrder',
+    this.onShipment = 'delivery',
+    this.onReturn = 'return',
+    this.onRefund = 'none',
     this.defaultCardCode = '',
     this.defaultWarehouse = '',
     this.defaultBranch = '',
@@ -71,6 +75,10 @@ class AppSettings {
       createDelivery: pickBool(m, ['createDelivery', 'CreateDelivery']) ?? true,
       createReturn: pickBool(m, ['createReturn', 'CreateReturn']) ?? true,
       createCreditMemo: pickBool(m, ['createCreditMemo', 'CreateCreditMemo']) ?? false,
+      onMarketplaceOrder: _docAction(m, ['onMarketplaceOrder', 'OnMarketplaceOrder'], pickBool(m, ['createSalesOrder', 'CreateSalesOrder']) ?? true, 'salesOrder'),
+      onShipment: _docAction(m, ['onShipment', 'OnShipment'], pickBool(m, ['createDelivery', 'CreateDelivery']) ?? true, 'delivery'),
+      onReturn: _docAction(m, ['onReturn', 'OnReturn'], pickBool(m, ['createReturn', 'CreateReturn']) ?? true, 'return'),
+      onRefund: _docAction(m, ['onRefund', 'OnRefund'], pickBool(m, ['createCreditMemo', 'CreateCreditMemo']) ?? false, 'creditMemo'),
       defaultCardCode: pickStr(m, ['defaultCardCode', 'DefaultCardCode', 'CardCode'], or: ''),
       defaultWarehouse: pickStr(m, ['defaultWarehouse', 'DefaultWarehouse', 'WhsCode'], or: ''),
       defaultBranch: pickStr(m, ['defaultBranch', 'DefaultBranch', 'Branch'], or: ''),
@@ -102,6 +110,10 @@ class AppSettings {
   final bool createDelivery;
   final bool createReturn;
   final bool createCreditMemo;
+  final String onMarketplaceOrder;
+  final String onShipment;
+  final String onReturn;
+  final String onRefund;
   final String defaultCardCode;
   final String defaultWarehouse;
   final String defaultBranch;
@@ -133,10 +145,72 @@ class AppSettings {
         'createDelivery': createDelivery,
         'createReturn': createReturn,
         'createCreditMemo': createCreditMemo,
+        'onMarketplaceOrder': onMarketplaceOrder,
+        'onShipment': onShipment,
+        'onReturn': onReturn,
+        'onRefund': onRefund,
         'defaultCardCode': defaultCardCode,
         'defaultWarehouse': defaultWarehouse,
         'defaultBranch': defaultBranch,
         'defaultTax': defaultTax,
         if (logo.isNotEmpty) 'logo': logo,
       };
+}
+
+const _docActions = {
+  'none',
+  'quotation',
+  'salesOrder',
+  'delivery',
+  'return',
+  'downPayment',
+  'invoice',
+  'creditMemo',
+};
+
+class ErpOptions {
+  const ErpOptions({
+    this.cardCodes = const [],
+    this.warehouses = const [],
+    this.branches = const [],
+    this.taxCodes = const [],
+  });
+
+  factory ErpOptions.fromApi(Map<String, dynamic> m) {
+    List<String> codes(List<String> keys) {
+      final v = pick(m, keys);
+      if (v is! List) return const [];
+      return [
+        for (final x in v)
+          if ('$x'.trim().isNotEmpty) '$x'.trim(),
+      ];
+    }
+
+    return ErpOptions(
+      cardCodes: codes(['cardCodes', 'CardCodes', 'customers', 'CardCode']),
+      warehouses: codes(['warehouses', 'Warehouses', 'whsCodes', 'WhsCode']),
+      branches: codes(['branches', 'Branches', 'businessPlaces']),
+      taxCodes: codes(['taxCodes', 'TaxCodes', 'taxes']),
+    );
+  }
+
+  final List<String> cardCodes;
+  final List<String> warehouses;
+  final List<String> branches;
+  final List<String> taxCodes;
+}
+
+String _docAction(Map<String, dynamic> m, List<String> keys, bool legacyOn, String ifOn) {
+  final raw = pickStr(m, keys, or: '');
+  if (_docActions.contains(raw)) return raw;
+  final lower = raw.toLowerCase();
+  if (lower.contains('quot')) return 'quotation';
+  if (lower.contains('down')) return 'downPayment';
+  if (lower.contains('credit') || lower.contains('refund') || lower.contains('คืนเงิน')) return 'creditMemo';
+  if (lower.contains('invoice')) return 'invoice';
+  if (lower.contains('sales')) return 'salesOrder';
+  if (lower.contains('delivery')) return 'delivery';
+  if (lower.contains('return') || lower.contains('คืนสินค้า')) return 'return';
+  if (lower.contains('none') || lower.contains('ไม่สร้าง')) return 'none';
+  return legacyOn ? ifOn : 'none';
 }

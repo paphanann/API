@@ -23,12 +23,14 @@ List<String> systemStatusLines({bool? autoSync}) {
       : latest.status == SyncStatus.success
           ? 'สำเร็จ'
           : latest.status == SyncStatus.error
-              ? 'ผิดพลาด'
-              : 'รอดำเนินการ';
+              ? 'ล้มเหลว'
+              : latest.status == SyncStatus.partial
+                  ? 'สำเร็จบางส่วน'
+                  : 'กำลังซิงก์';
   final noNew = latest != null &&
       latest.status == SyncStatus.success &&
-      latest.orderCount == 0 &&
-      latest.productCount == 0;
+      (latest.msg.contains('ไม่พบการเปลี่ยนแปลง') ||
+          (latest.orderCount == 0 && latest.productCount == 0));
 
   return [
     'การเชื่อมต่อ',

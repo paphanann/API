@@ -96,7 +96,7 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
         return SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Panel(
-            title: 'ประวัติการซิงก์ข้อมูล',
+            title: 'ประวัติการซิงก์',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -127,9 +127,10 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                       }),
                       items: const [
                         DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                        DropdownMenuItem(value: 'success', child: Text('Success')),
-                        DropdownMenuItem(value: 'error', child: Text('Error')),
-                        DropdownMenuItem(value: 'pending', child: Text('Pending')),
+                        DropdownMenuItem(value: 'success', child: Text('สำเร็จ')),
+                        DropdownMenuItem(value: 'partial', child: Text('สำเร็จบางส่วน')),
+                        DropdownMenuItem(value: 'error', child: Text('ล้มเหลว')),
+                        DropdownMenuItem(value: 'running', child: Text('กำลังซิงก์')),
                       ],
                     ),
                     SizedBox(
@@ -215,7 +216,7 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontWeight: FontWeight.w600),
                             )),
-                            DataCell(Text(l.action, maxLines: 1, softWrap: false)),
+                            DataCell(Text(l.actionLabel, maxLines: 1, softWrap: false)),
                             DataCell(syncPill(l.status)),
                             DataCell(
                               ConstrainedBox(
@@ -245,7 +246,9 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                 Row(
                   children: [
                     Text(
-                      all.isEmpty ? 'แสดง 0 รายการ' : 'แสดง $fromN - $toN จาก ${all.length} รายการ',
+                      all.isEmpty
+                          ? 'แสดง 0 เหตุการณ์การซิงก์'
+                          : 'แสดง $fromN - $toN จาก ${all.length} เหตุการณ์การซิงก์',
                       style: const TextStyle(color: Pal.muted, fontSize: 13),
                     ),
                     const Spacer(),

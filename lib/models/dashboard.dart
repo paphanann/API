@@ -63,8 +63,8 @@ class DashData {
     );
   }
 
-  factory DashData.fromLive({required List<Order> orders, required List<ShopConn> shops}) {
-    final today = DateTime.now();
+  factory DashData.fromLive({required List<Order> orders, required List<ShopConn> shops, DateTime? until}) {
+    final today = until ?? DateTime.now();
     final days = [
       for (var i = 6; i >= 0; i--) DateTime(today.year, today.month, today.day).subtract(Duration(days: i)),
     ];

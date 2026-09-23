@@ -3,7 +3,7 @@ import 'package:web/web.dart' as web;
 
 import '../core/api.dart';
 
-/// ล็อกอินผ่าน Backend ที่ตรวจจากฐานข้อมูล — หน้าบ้านไม่คุย SQL ตรง
+/// ล็อกอินผ่าน Backend ที่ตรวจจากฐานข้อมูล 
 class Session extends ChangeNotifier {
   Session() {
     final s = web.window.localStorage;

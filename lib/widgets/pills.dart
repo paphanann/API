@@ -24,13 +24,29 @@ Widget orderPill(OrderStatus s) {
 
 Widget syncPill(SyncStatus s) {
   switch (s) {
+    case SyncStatus.running:
+      return pill('กำลังซิงก์', const Color(0xFF1D4ED8), const Color(0xFFDBEAFE));
     case SyncStatus.success:
-      return pill('Success', const Color(0xFF15803D), Pal.okBg);
+      return pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg);
+    case SyncStatus.partial:
+      return pill('สำเร็จบางส่วน', const Color(0xFFC2410C), const Color(0xFFFFEDD5));
     case SyncStatus.error:
-      return pill('Error', const Color(0xFFB91C1C), Pal.errBg);
-    case SyncStatus.pending:
-      return pill('Pending', const Color(0xFFB45309), Pal.warnBg);
+      return pill('ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
   }
+}
+
+Widget orderSyncPill(String? raw) {
+  final v = (raw ?? '').toLowerCase();
+  if (v.contains('sap_ok') || v.contains('sapok') || v == 'ok') {
+    return pill('เข้า SAP แล้ว', const Color(0xFF15803D), Pal.okBg);
+  }
+  if (v.contains('sap_error') || v.contains('error')) {
+    return pill('SAP ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+  }
+  if (v.contains('saved') || v.isEmpty) {
+    return pill('รอ SAP', const Color(0xFFB45309), Pal.warnBg);
+  }
+  return pill(raw!, Pal.muted, const Color(0xFFF3F4F6));
 }
 
 Widget warehouseStatusPill(String raw) {
