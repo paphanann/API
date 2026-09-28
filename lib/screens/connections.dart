@@ -171,7 +171,6 @@ class _Card extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final busy = ShopStore.instance.syncing == s.channel;
     final shop = _text(s.shop);
     final shopId = _text(s.shopId);
 
@@ -208,28 +207,6 @@ class _Card extends StatelessWidget {
 
     final actions = <Widget>[
       if (s.connected) ...[
-        SizedBox(
-          width: double.infinity,
-          height: 44,
-          child: ElevatedButton.icon(
-            onPressed: busy
-                ? null
-                : () async {
-                    await ShopStore.instance.sync(s.channel);
-                    if (!context.mounted) return;
-                    if (ShopStore.instance.error == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('ซิงค์ออเดอร์ ${s.channel.label} สำเร็จ')),
-                      );
-                    }
-                  },
-            icon: busy
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Icon(Icons.sync_rounded, size: 18),
-            label: const Text('Sync Orders'),
-          ),
-        ),
-        const SizedBox(height: 10),
         SizedBox(height: 44, child: _ReconnectBtn(channel: s.channel, outlined: true)),
         const SizedBox(height: 10),
         SizedBox(

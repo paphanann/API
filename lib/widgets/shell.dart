@@ -3,9 +3,6 @@ import 'package:go_router/go_router.dart';
 
 import '../app/session.dart';
 import '../app/theme.dart';
-import '../core/api.dart';
-import '../stores/stores.dart';
-import 'sync_status.dart';
 import 'ui.dart';
 
 const _menus = [
@@ -14,7 +11,7 @@ const _menus = [
   ('/products', 'สินค้า', Icons.inventory_2_outlined),
   ('/inventory', 'คลังสินค้า', Icons.warehouse_outlined),
   ('/connections', 'การเชื่อมต่อ marketplace', Icons.link_rounded),
-  ('/sync-log', 'Sync Log', Icons.sync_rounded),
+  ('/sync-log', 'Sync Error Log', Icons.sync_rounded),
   ('/settings', 'ตั้งค่า', Icons.settings_outlined),
 ];
 
@@ -117,7 +114,7 @@ class AppShell extends StatelessWidget {
     if (path.startsWith('/inventory')) return 'คลังสินค้า';
     if (path.startsWith('/connections') || path.startsWith('/integration')) return 'การเชื่อมต่อ marketplace';
     if (path.startsWith('/sync-log/')) return 'Error Detail';
-    if (path.startsWith('/sync-log')) return 'Sync Log';
+    if (path.startsWith('/sync-log')) return 'Sync Error Log';
     if (path.startsWith('/settings')) return 'ตั้งค่า';
     return 'PASS';
   }
@@ -283,20 +280,12 @@ class TopBar extends StatelessWidget {
           const Expanded(child: SizedBox.shrink()),
           IconButton(
             onPressed: () {
-              ShopStore.instance.load();
-              SyncLogStore.instance.load();
               showDialog<void>(
                 context: context,
-                builder: (ctx) => FutureBuilder(
-                  future: Api.getSettings(),
-                  builder: (ctx, snap) => AlertDialog(
-                    title: const Text('การแจ้งเตือน'),
-                    content: SizedBox(
-                      width: 320,
-                      child: SyncStatusBody(autoSync: snap.data?.autoSync),
-                    ),
-                    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ปิด'))],
-                  ),
+                builder: (ctx) => AlertDialog(
+                  title: const Text('การแจ้งเตือน'),
+                  content: const Text('ไม่มีข้อความใหม่'),
+                  actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ปิด'))],
                 ),
               );
             },
