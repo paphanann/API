@@ -19,18 +19,52 @@ String _startLocation() {
 
   final uri = Uri.base;
   final hash = uri.fragment.trim();
-  final fromHash = hash.isEmpty ? null : Uri.parse(hash.startsWith('/') ? hash : '/$hash');
-  final loc = fromHash ?? uri;
-  final status = (loc.queryParameters['status'] ?? uri.queryParameters['status'] ?? '').toLowerCase();
-  final query = loc.query.isNotEmpty ? loc.query : uri.query;
 
-  if (status == 'success' || status == 'error' || Api.pendingOAuthReturn) {
-    return query.isEmpty ? '/connections' : '/connections?$query';
+  final fromHash = hash.isEmpty
+      ? null
+      : Uri.parse(hash.startsWith('/') ? hash : '/$hash');
+
+  // ถ้ามี hash route เช่น #/orders ให้ใช้ route ใน hash
+  if (fromHash != null) {
+    final status =
+        (fromHash.queryParameters['status'] ??
+                uri.queryParameters['status'] ??
+                '')
+            .toLowerCase();
+
+    final query =
+        fromHash.query.isNotEmpty ? fromHash.query : uri.query;
+
+    if (status == 'success' ||
+        status == 'error' ||
+        Api.pendingOAuthReturn) {
+      return query.isEmpty
+          ? '/connections'
+          : '/connections?$query';
+    }
+
+    final path =
+        fromHash.path.isEmpty ? '/login' : fromHash.path;
+
+    return fromHash.hasQuery
+        ? '$path?${fromHash.query}'
+        : path;
   }
 
-  final path = loc.path.isEmpty ? '/' : loc.path;
-  if (path == '/' || path.isEmpty) return '/login';
-  return loc.hasQuery ? '$path?${loc.query}' : path;
+  // URL หลักของ GitHub Pages เช่น /API/
+  // ไม่ใช่ route ของ GoRouter
+  final status =
+      (uri.queryParameters['status'] ?? '').toLowerCase();
+
+  if (status == 'success' ||
+      status == 'error' ||
+      Api.pendingOAuthReturn) {
+    return uri.query.isEmpty
+        ? '/connections'
+        : '/connections?${uri.query}';
+  }
+
+  return '/login';
 }
 
 String? _oauthTarget(Uri uri) {
