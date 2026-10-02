@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../app/session.dart';
 import '../app/theme.dart';
 import '../core/format.dart';
 import '../models/models.dart';
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
     OrderStore.instance,
     ProductStore.instance,
     SyncLogStore.instance,
+    Session.instance,
   ]);
 
   static const _thMonths = [
@@ -305,10 +307,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   Widget conns({required bool expand}) => Panel(
                         expand: expand,
                         title: 'สถานะการเชื่อมต่อ',
-                        trailing: TextButton(
-                          onPressed: () => context.go('/connections'),
-                          child: const Text('จัดการการเชื่อมต่อ'),
-                        ),
+                        trailing: Session.instance.isUserRole
+                            ? null
+                            : TextButton(
+                                onPressed: () => context.go('/connections'),
+                                child: const Text('จัดการการเชื่อมต่อ'),
+                              ),
                         child: _ConnList(shops),
                       );
                   if (c.maxWidth < 960) {
@@ -345,10 +349,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                   final sync = Panel(
                     title: 'Sync Log ล่าสุด',
-                    trailing: TextButton(
-                      onPressed: () => context.go('/sync-log'),
-                      child: const Text('ดูทั้งหมด →'),
-                    ),
+                    trailing: Session.instance.isUserRole
+                        ? null
+                        : TextButton(
+                            onPressed: () => context.go('/sync-log'),
+                            child: const Text('ดูทั้งหมด →'),
+                          ),
                     pad: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                     child: _RecentLogs(logs.take(5).toList()),
                   );
@@ -530,7 +536,7 @@ class _RecentLogs extends StatelessWidget {
         for (final l in logs)
           _MiniRow(
             flex: _flex,
-            onTap: () => context.go('/sync-log/${l.routeId}'),
+            onTap: Session.instance.isUserRole ? null : () => context.go('/sync-log/${l.routeId}'),
             cells: [
               Text(timeFmt.format(l.time), maxLines: 1, style: const TextStyle(fontSize: 12, color: Pal.muted)),
               Text(l.channel.shortLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),

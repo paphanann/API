@@ -90,15 +90,17 @@ GoRouter buildRouter(Session session) {
       final atLogin = loc == '/login';
       final atConnections = loc == '/connections' || loc == '/integration';
 
-      if (session.loggedIn && oauth != null && !atConnections) {
+      if (session.loggedIn && oauth != null && !atConnections && session.allowsPath('/connections')) {
         return oauth;
       }
       if (!session.loggedIn && !atLogin) return '/login';
-      if (session.loggedIn && atLogin) return oauth ?? '/connections';
+      if (session.loggedIn && atLogin) return oauth != null && session.allowsPath('/connections') ? oauth : session.homePath;
       if (loc == '/integration') {
+        if (!session.allowsPath('/connections')) return '/';
         final q = state.uri.hasQuery ? '?${state.uri.query}' : '';
         return '/connections$q';
       }
+      if (session.loggedIn && !session.allowsPath(loc)) return '/';
       return null;
     },
     routes: [

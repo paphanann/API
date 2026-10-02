@@ -39,7 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _err = widget.session.lastError ?? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง');
       return;
     }
-    if (mounted) context.go('/connections');
+    if (mounted) context.go(widget.session.homePath);
   }
 
   @override

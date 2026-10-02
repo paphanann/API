@@ -12,6 +12,7 @@ class ProductVariant {
     required this.status,
     this.sapItemCode = '',
     this.imageUrl = '',
+    this.issue = '',
   });
 
   factory ProductVariant.fromApi(Map<String, dynamic> m) {
@@ -30,6 +31,7 @@ class ProductVariant {
               : ProductStatus.active,
       sapItemCode: sap == '-' ? '' : sap,
       imageUrl: pickStr(m, ['Image', 'image', 'ImageUrl', 'imageUrl', 'image_url'], or: ''),
+      issue: _productIssue(m),
     );
   }
 
@@ -41,8 +43,15 @@ class ProductVariant {
   final ProductStatus status;
   final String sapItemCode;
   final String imageUrl;
+  final String issue;
 
   bool get mapped => sapItemCode.isNotEmpty && sapItemCode != '-';
+
+  String get problem {
+    if (issue.isNotEmpty) return issue;
+    if (!mapped) return 'ไม่พบสินค้าใน SAP';
+    return '';
+  }
 }
 
 class Product {
@@ -59,6 +68,7 @@ class Product {
     this.sapItemCode = '',
     this.variants = const [],
     this.updatedAt,
+    this.issue = '',
   });
 
   factory Product.fromApi(Map<String, dynamic> m) {
@@ -100,6 +110,7 @@ class Product {
       imageUrl: pickStr(m, ['Image', 'image', 'ImageUrl', 'imageUrl', 'image_url', 'Cover', 'cover'], or: ''),
       sapItemCode: sap == '-' ? '' : sap,
       variants: variants,
+      issue: _productIssue(m),
       updatedAt: pickTime(m, [
         'UpdatedAt',
         'updatedAt',
@@ -160,6 +171,7 @@ class Product {
   final String sapItemCode;
   final List<ProductVariant> variants;
   final DateTime? updatedAt;
+  final String issue;
 
   bool get hasVariants => variants.isNotEmpty;
   int get variantCount => variants.length;
@@ -188,4 +200,36 @@ class Product {
     if (!hasVariants) return sapItemCode.isNotEmpty;
     return variants.every((v) => v.mapped);
   }
+
+  String get problem {
+    if (issue.isNotEmpty) return issue;
+    if (parentSap == 'บางส่วน' || (hasVariants && variants.any((v) => !v.mapped) && variants.any((v) => v.mapped))) {
+      return 'ไม่พบสินค้าใน SAP';
+    }
+    if (!mapped) return 'ไม่พบสินค้าใน SAP';
+    return '';
+  }
+}
+
+String _productIssue(Map<String, dynamic> m) {
+  final raw = pickStr(m, [
+    'Issue',
+    'issue',
+    'Problem',
+    'problem',
+    'Warning',
+    'warning',
+    'SapError',
+    'sapError',
+    'ErrorMessage',
+    'errorMessage',
+    'MappingError',
+    'mappingError',
+  ], or: '');
+  if (raw.isEmpty || raw == '-') return '';
+  final lower = raw.toLowerCase();
+  if (lower.contains('sap') && (lower.contains('not found') || lower.contains('missing') || lower.contains('ไม่พบ'))) {
+    return 'ไม่พบสินค้าใน SAP';
+  }
+  return raw;
 }

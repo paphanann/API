@@ -18,6 +18,12 @@ class _PassAppState extends State<PassApp> {
   late final _router = buildRouter(widget.session);
 
   @override
+  void initState() {
+    super.initState();
+    widget.session.resolveRole();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'PASS',

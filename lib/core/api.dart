@@ -312,6 +312,56 @@ class Api {
     return 'ยกเลิกการเชื่อมต่อ ${channel.label} แล้ว';
   }
 
+  static String roleFromToken(String? token) {
+    if (token == null || token.isEmpty) return '';
+    final parts = token.split('.');
+    if (parts.length < 2) return '';
+    try {
+      var payload = parts[1].replaceAll('-', '+').replaceAll('_', '/');
+      final pad = (4 - payload.length % 4) % 4;
+      payload += '=' * pad;
+      final data = jsonDecode(utf8.decode(base64.decode(payload)));
+      if (data is! Map) return '';
+      return pickRole(Map<String, dynamic>.from(data));
+    } catch (_) {
+      return '';
+    }
+  }
+
+  static Future<String> lookupRole({required List<String> identities}) async {
+    final ids = {
+      for (final x in identities)
+        if (x.trim().isNotEmpty && x != '-') x.trim().toLowerCase(),
+    };
+
+    for (final path in ['/api/auth/me', '/api/me', '/api/users/me']) {
+      try {
+        final res = await _send(http.get(_u(path), headers: _headers()));
+        if (res.statusCode == 404 || res.statusCode == 401 || res.statusCode == 403) continue;
+        final data = await _json(res);
+        if (data is! Map) continue;
+        final map = Map<String, dynamic>.from(data);
+        final nested = pick(map, ['user', 'User', 'data', 'Data']);
+        final user = nested is Map ? Map<String, dynamic>.from(nested) : map;
+        final role = pickRole(user);
+        if (role.isNotEmpty) return role;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404 || e.statusCode == 401 || e.statusCode == 403) continue;
+      } catch (_) {}
+    }
+
+    if (ids.isEmpty) return '';
+    try {
+      final users = await getUsers();
+      for (final u in users) {
+        final keys = {u.email.trim().toLowerCase(), u.name.trim().toLowerCase(), u.id.trim().toLowerCase()};
+        if (keys.intersection(ids).isEmpty) continue;
+        if (u.role.isNotEmpty && u.role != '-') return u.role;
+      }
+    } catch (_) {}
+    return '';
+  }
+
   /// ตรวจผู้ใช้จากฐานข้อมูลผ่าน Backend เท่านั้น
   static Future<AuthUser> login({required String email, required String password}) async {
     final body = jsonEncode({
@@ -339,10 +389,14 @@ class Api {
     final user = nested is Map ? Map<String, dynamic>.from(nested) : map;
     var name = pickStr(user, ['Name', 'name', 'FullName', 'DisplayName', 'displayName'], or: '');
     if (name == '-') name = '';
+    var role = pickRole(user);
+    if (role.isEmpty) role = pickRole(map);
+    if (role.isEmpty) role = roleFromToken(pickStr(map, ['Token', 'token', 'accessToken', 'access_token', 'jwt'], or: ''));
     return AuthUser(
       email: pickStr(user, ['Email', 'email', 'Username', 'username'], or: email),
       name: name,
       token: pickStr(map, ['Token', 'token', 'accessToken', 'access_token', 'jwt'], or: ''),
+      role: role,
     );
   }
 }

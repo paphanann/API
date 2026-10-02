@@ -20,6 +20,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
   String _ch = 'all';
   String _st = 'active';
+  String _issue = 'all';
   String _q = '';
   int _page = 1;
   DateTime? _from;
@@ -100,6 +101,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return ProductStore.instance.products.where((p) {
       if (_ch != 'all' && p.channel.name != _ch) return false;
       if (_st != 'all' && p.status.name != _st) return false;
+      if (_issue == 'sap' && p.problem.isEmpty) return false;
+      if (_issue == 'none' && p.problem.isNotEmpty) return false;
       if (!inDayRange(p.updatedAt, _from, _to)) return false;
       if (q.isEmpty) return true;
       if (p.sku.toLowerCase().contains(q) || p.name.toLowerCase().contains(q) || p.displayId.toLowerCase().contains(q)) {
@@ -177,6 +180,20 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             DropdownMenuItem(value: 'draft', child: Text('ฉบับร่าง')),
                           ],
                         ),
+                        Drop<String>(
+                          label: 'ปัญหา',
+                          value: _issue,
+                          width: 200,
+                          onChanged: (v) => setState(() {
+                            _issue = v ?? 'all';
+                            _page = 1;
+                          }),
+                          items: const [
+                            DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
+                            DropdownMenuItem(value: 'none', child: Text('ไม่มีปัญหา')),
+                            DropdownMenuItem(value: 'sap', child: Text('ไม่พบสินค้าใน SAP')),
+                          ],
+                        ),
                         DateRangeField(from: _from, to: _to, onTap: _pickRange),
                         SizedBox(
                           width: 260,
@@ -235,7 +252,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         return _TableViewport(
                           width: box.maxWidth,
                           child: FillTable(
-                            minWidth: 1560,
+                            minWidth: 1780,
                             child: Column(
                               children: [
                                 _header(),
@@ -287,6 +304,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         status: const Text('สถานะ', style: tableHead),
         sap: const Text('SAP ItemCode', style: tableHead),
         mapping: const Text('Mapping', style: tableHead),
+        problem: const Text('ปัญหา', style: tableHead),
       ),
     );
   }
@@ -301,6 +319,7 @@ class _ProdCols extends StatelessWidget {
     required this.stock,
     required this.variants,
     required this.status,
+    required this.problem,
     required this.sap,
     required this.mapping,
   });
@@ -312,6 +331,7 @@ class _ProdCols extends StatelessWidget {
   final Widget stock;
   final Widget variants;
   final Widget status;
+  final Widget problem;
   final Widget sap;
   final Widget mapping;
 
@@ -336,6 +356,7 @@ class _ProdCols extends StatelessWidget {
         cell(120, status),
         cell(140, sap),
         cell(150, mapping),
+        cell(200, problem),
       ],
     );
   }
@@ -406,6 +427,7 @@ class _ProductBlockState extends State<_ProductBlock> {
               status: productPill(p.status),
               sap: Text(p.parentSap.isEmpty ? '-' : p.parentSap, maxLines: 1, overflow: TextOverflow.ellipsis),
               mapping: _mapPill(p.mapped, label: p.parentSap == 'บางส่วน' ? 'บางส่วน' : null),
+              problem: productProblemCell(p.problem),
             ),
           ),
         ),
@@ -452,6 +474,7 @@ class _ProductBlockState extends State<_ProductBlock> {
                       DataColumn(label: Text('SAP ItemCode')),
                       DataColumn(label: Text('Mapping')),
                       DataColumn(label: Text('สถานะ')),
+                      DataColumn(label: Text('ปัญหา')),
                     ],
                     rows: [
                       for (final v in p.variants)
@@ -470,6 +493,7 @@ class _ProductBlockState extends State<_ProductBlock> {
                             DataCell(Text(v.sapItemCode.isEmpty ? '-' : v.sapItemCode)),
                             DataCell(_mapPill(v.mapped)),
                             DataCell(productPill(v.status)),
+                            DataCell(productProblemCell(v.problem)),
                           ],
                         ),
                     ],

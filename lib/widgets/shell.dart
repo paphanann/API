@@ -5,6 +5,8 @@ import '../app/session.dart';
 import '../app/theme.dart';
 import 'ui.dart';
 
+const _adminMenus = {'/connections', '/sync-log', '/settings'};
+
 const _menus = [
   ('/', 'หน้าหลัก', Icons.grid_view_rounded),
   ('/orders', 'คำสั่งซื้อ', Icons.receipt_long_rounded),
@@ -42,8 +44,8 @@ class AppShell extends StatelessWidget {
               height: h,
               child: Stack(
                 children: [
-                  Positioned(left: 0, top: 0, bottom: 0, width: side, child: SideMenu(session: session)),
-                  Positioned(left: side, top: 0, right: 0, height: top, child: TopBar(title: title, session: session)),
+                  Positioned(left: 0, top: 0, bottom: 0, width: side, child: ListenableBuilder(listenable: session, builder: (_, _) => SideMenu(session: session))),
+                  Positioned(left: side, top: 0, right: 0, height: top, child: ListenableBuilder(listenable: session, builder: (_, _) => TopBar(title: title, session: session))),
                   Positioned(
                     left: side,
                     top: top,
@@ -64,7 +66,10 @@ class AppShell extends StatelessWidget {
       drawer: Drawer(
         width: side,
         backgroundColor: Pal.sidebar,
-        child: SideMenu(session: session, onPick: () => Navigator.of(context).maybePop()),
+        child: ListenableBuilder(
+          listenable: session,
+          builder: (_, _) => SideMenu(session: session, onPick: () => Navigator.of(context).maybePop()),
+        ),
       ),
       body: LayoutBuilder(
         builder: (context, box) {
@@ -82,10 +87,13 @@ class AppShell extends StatelessWidget {
                   right: 0,
                   height: top,
                   child: Builder(
-                    builder: (ctx) => TopBar(
-                      title: title,
-                      session: session,
-                      onMenu: () => Scaffold.of(ctx).openDrawer(),
+                    builder: (ctx) => ListenableBuilder(
+                      listenable: session,
+                      builder: (_, _) => TopBar(
+                        title: title,
+                        session: session,
+                        onMenu: () => Scaffold.of(ctx).openDrawer(),
+                      ),
                     ),
                   ),
                 ),
@@ -157,18 +165,19 @@ class SideMenu extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (final m in _menus)
-                  _tile(
-                    icon: m.$3,
-                    label: m.$2,
-                    selected: _on(loc, m.$1),
-                    onTap: () {
-                      final to = m.$1;
-                      onPick?.call();
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (context.mounted) context.go(to);
-                      });
-                    },
-                  ),
+                  if (!session.isUserRole || !_adminMenus.contains(m.$1))
+                    _tile(
+                      icon: m.$3,
+                      label: m.$2,
+                      selected: _on(loc, m.$1),
+                      onTap: () {
+                        final to = m.$1;
+                        onPick?.call();
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (context.mounted) context.go(to);
+                        });
+                      },
+                    ),
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                   child: Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
@@ -323,7 +332,7 @@ class TopBar extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(session.name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    const Text('User', style: TextStyle(fontSize: 11, color: Pal.muted)),
+                    Text(session.role.isEmpty ? '' : session.role, style: const TextStyle(fontSize: 11, color: Pal.muted)),
                   ],
                 ),
                 const Icon(Icons.keyboard_arrow_down_rounded, color: Pal.muted),

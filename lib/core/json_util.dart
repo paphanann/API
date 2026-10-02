@@ -24,6 +24,37 @@ String pickStr(Map<String, dynamic> m, List<String> keys, {String or = '-'}) {
   return s;
 }
 
+const roleKeys = [
+  'Role',
+  'role',
+  'RoleName',
+  'roleName',
+  'UserRole',
+  'userRole',
+  'user_role',
+  'Group',
+  'group',
+  'GroupName',
+  'groupName',
+  'Permission',
+  'permission',
+  'RoleCode',
+  'roleCode',
+];
+
+String pickRole(Map<String, dynamic> m) {
+  final v = pick(m, roleKeys);
+  if (v is List && v.isNotEmpty) {
+    final first = v.first;
+    if (first is Map) return pickRole(Map<String, dynamic>.from(first));
+    final s = first.toString().trim();
+    return (s.isEmpty || s == '-') ? '' : s;
+  }
+  if (v is Map) return pickRole(Map<String, dynamic>.from(v));
+  final s = pickStr(m, roleKeys, or: '');
+  return s == '-' ? '' : s;
+}
+
 double pickDouble(Map<String, dynamic> m, List<String> keys) {
   final v = pick(m, keys);
   if (v is num) return v.toDouble();

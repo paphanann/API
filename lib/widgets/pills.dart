@@ -76,6 +76,27 @@ Widget productPill(ProductStatus s) {
   }
 }
 
+Widget productProblemCell(String text) {
+  if (text.isEmpty || text == '-') {
+    return const Text('-', style: TextStyle(color: Pal.muted, fontSize: 13));
+  }
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      const Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFF59E0B)),
+      const SizedBox(width: 6),
+      Flexible(
+        child: Text(
+          text,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Pal.text),
+        ),
+      ),
+    ],
+  );
+}
+
 Widget connPill(ConnStatus s) {
   switch (s) {
     case ConnStatus.waiting:
