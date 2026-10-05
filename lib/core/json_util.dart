@@ -24,6 +24,24 @@ String pickStr(Map<String, dynamic> m, List<String> keys, {String or = '-'}) {
   return s;
 }
 
+bool isMaskedText(String raw) {
+  final t = raw.trim();
+  if (t.isEmpty) return false;
+  return !RegExp(r'[A-Za-z0-9ก-๙]').hasMatch(t) && RegExp(r'[*•]').hasMatch(t);
+}
+
+String pickPlainStr(Map<String, dynamic> m, List<String> keys, {String or = '-'}) {
+  for (final want in keys) {
+    final v = pick(m, [want]);
+    if (v == null || v is Map || v is List) continue;
+    final s = v.toString().trim();
+    if (s.isEmpty || s == '-' || s.toLowerCase() == 'null' || s.toLowerCase() == 'undefined') continue;
+    if (isMaskedText(s)) continue;
+    return s;
+  }
+  return or;
+}
+
 const roleKeys = [
   'Role',
   'role',
@@ -83,14 +101,18 @@ int pickInt(Map<String, dynamic> m, List<String> keys, {int or = 0}) {
   return int.tryParse(v?.toString() ?? '') ?? or;
 }
 
+/// เวลาจาก API ที่เป็น UTC (ลงท้าย Z) ให้โชว์เป็นเวลาไทย UTC+7
+DateTime bangkokWall(DateTime instant) {
+  final bkk = instant.toUtc().add(const Duration(hours: 7));
+  return DateTime(bkk.year, bkk.month, bkk.day, bkk.hour, bkk.minute, bkk.second, bkk.millisecond);
+}
+
 DateTime? pickTime(Map<String, dynamic> m, List<String> keys) {
   final v = pick(m, keys);
   if (v == null) return null;
 
   if (v is DateTime) {
-    return v.isUtc
-        ? DateTime(v.year, v.month, v.day, v.hour, v.minute, v.second, v.millisecond)
-        : v;
+    return v.isUtc ? bangkokWall(v) : v;
   }
 
   if (v is num) {
@@ -101,21 +123,16 @@ DateTime? pickTime(Map<String, dynamic> m, List<String> keys) {
     } else if (n > 1000000000) {
       dt = DateTime.fromMillisecondsSinceEpoch(n * 1000, isUtc: true);
     }
-    return dt?.toLocal();
+    return dt == null ? null : bangkokWall(dt);
   }
 
   final raw = v.toString().trim();
   final dt = DateTime.tryParse(raw);
   if (dt == null) return null;
 
-  // มี offset จริง เช่น +07:00
-  final hasOffset = RegExp(r'[+-]\d{2}:\d{2}$').hasMatch(raw);
-  if (hasOffset) return dt.toLocal();
-
-  // SQL DATETIME / สตริงติด Z ปลอม — ใช้ตัวเลขนาฬิกาตามที่ส่ง ไม่ +7 ซ้ำ
-  if (dt.isUtc) {
-    return DateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.millisecond);
-  }
+  // Z หรือ +00:00 คือ UTC จริงจากฐานข้อมูล — สตริงที่ไม่มีโซนเป็นเวลาไทยอยู่แล้ว
+  final hasOffset = RegExp(r'(?:Z|[+-]\d{2}:\d{2})$').hasMatch(raw);
+  if (hasOffset) return bangkokWall(dt);
   return dt;
 }
 

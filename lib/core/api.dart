@@ -252,6 +252,30 @@ class Api {
     return [for (final row in rows) if (row is Map) ShopConn.fromApi(Map<String, dynamic>.from(row))];
   }
 
+  static Future<Order?> getOrder(String id) async {
+    final encoded = Uri.encodeComponent(id);
+    final tries = [
+      _u('/api/orders/$encoded'),
+      _u('/api/orders/detail', {'id': id}),
+      _u('/api/orders/detail', {'orderNo': id, 'order_sn': id}),
+    ];
+    for (final uri in tries) {
+      try {
+        final res = await _send(http.get(uri, headers: _headers()));
+        if (res.statusCode == 404) continue;
+        final data = await _json(res);
+        if (data is! Map) continue;
+        final map = Map<String, dynamic>.from(data);
+        final nested = pick(map, ['data', 'Data', 'order', 'Order', 'result', 'Result']);
+        if (nested is Map) return Order.fromApi(Map<String, dynamic>.from(nested));
+        return Order.fromApi(map);
+      } on ApiException catch (e) {
+        if (e.statusCode == 404 || e.statusCode == 403) continue;
+      } catch (_) {}
+    }
+    return null;
+  }
+
   static Future<List<Order>> getOrders({String? platform}) async {
     final query = platform == null || platform.isEmpty ? null : {'platform': platform};
     final res = await _send(http.get(_u('/api/orders', query), headers: _headers()));

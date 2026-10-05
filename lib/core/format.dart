@@ -1,6 +1,14 @@
 import 'package:intl/intl.dart';
 
-final baht = NumberFormat.currency(locale: 'th_TH', symbol: '฿', decimalDigits: 2);
+final _money = NumberFormat('#,##0.00');
+
+/// ราคาแสดงเป็น `99.00 บาท` — ไม่ใช้ $ / ฿ หน้าตัวเลข
+class _BahtFormat {
+  const _BahtFormat();
+  String format(num value) => '${_money.format(value)} บาท';
+}
+
+const baht = _BahtFormat();
 final nFmt = NumberFormat('#,##0');
 final dtFmt = DateFormat('dd/MM/yyyy HH:mm');
 final dtSec = DateFormat('dd/MM/yyyy HH:mm:ss');

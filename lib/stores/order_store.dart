@@ -18,6 +18,23 @@ class OrderStore extends PassStore {
     return null;
   }
 
+  Future<Order?> loadOne(String id) async {
+    try {
+      final one = await Api.getOrder(id);
+      if (one == null) return byId(id);
+      final i = orders.indexWhere((o) => o.id == id);
+      if (i >= 0) {
+        orders[i] = one;
+      } else {
+        orders = [...orders, one];
+      }
+      notifyListeners();
+      return one;
+    } catch (_) {
+      return byId(id);
+    }
+  }
+
   Future<void> load({String? platform}) async {
     loading = true;
     error = null;
