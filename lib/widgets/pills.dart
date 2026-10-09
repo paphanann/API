@@ -49,6 +49,25 @@ Widget orderSyncPill(String? raw) {
   return pill(raw!, Pal.muted, const Color(0xFFF3F4F6));
 }
 
+Widget transferPill(String raw) {
+  final v = raw.trim();
+  if (v.isEmpty || v == '-') return pill('รอดำเนินการ', const Color(0xFFB45309), Pal.warnBg);
+  final lower = v.toLowerCase();
+  if (lower.contains('success') || lower.contains('done') || lower.contains('complete') || lower.contains('สำเร็จ')) {
+    return pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg);
+  }
+  if (lower.contains('cancel') || lower.contains('fail') || lower.contains('error') || lower.contains('ยกเลิก')) {
+    return pill('ยกเลิก', const Color(0xFFB91C1C), Pal.errBg);
+  }
+  if (lower.contains('draft') || lower.contains('ฉบับร่าง')) {
+    return pill('ฉบับร่าง', Pal.muted, const Color(0xFFF3F4F6));
+  }
+  if (lower.contains('pending') || lower.contains('wait') || lower.contains('รอ')) {
+    return pill('รอดำเนินการ', const Color(0xFFB45309), Pal.warnBg);
+  }
+  return pill(v, Pal.muted, const Color(0xFFF3F4F6));
+}
+
 Widget warehouseStatusPill(String raw) {
   final v = raw.trim();
   if (v.isEmpty || v == '-') return const Text('-');

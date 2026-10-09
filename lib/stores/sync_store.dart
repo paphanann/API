@@ -33,6 +33,9 @@ class SyncLogStore extends PassStore {
 }
 
 String _publicSyncMessage(Map<String, dynamic> result) {
+  if (result['status'] == 'running') return 'กำลังซิงก์เบื้องหลัง';
+  final summary = result['summary'];
+  if (summary is Map) return _publicSyncMessage(Map<String, dynamic>.from(summary));
   if (result['skipped'] == true) return 'เพิ่ง sync ไปแล้ว ข้ามรอบนี้';
   var orders = 0;
   var products = 0;
@@ -71,6 +74,10 @@ class MarketplaceSyncStore extends PassStore {
     try {
       final result = await Api.syncNow(force: force);
       lastMessage = _publicSyncMessage(result);
+      final jobId = result['jobId']?.toString() ?? '';
+      if (result['status'] == 'running' && jobId.isNotEmpty) {
+        _watchJob(jobId);
+      }
       return result;
     } catch (e) {
       error = e is ApiException ? e.message : e.toString();
@@ -80,6 +87,25 @@ class MarketplaceSyncStore extends PassStore {
     } finally {
       syncing = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _watchJob(String jobId) async {
+    for (var i = 0; i < 40; i++) {
+      await Future<void>.delayed(const Duration(seconds: 2));
+      try {
+        final job = await Api.syncJob(jobId);
+        final status = job['status']?.toString() ?? '';
+        if (status == 'running') continue;
+        lastMessage = status == 'error'
+            ? (job['error']?.toString() ?? 'ซิงก์ไม่สำเร็จ')
+            : _publicSyncMessage(job);
+        if (status == 'error') error = lastMessage;
+        notifyListeners();
+        return;
+      } catch (_) {
+        return;
+      }
     }
   }
 }

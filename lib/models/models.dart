@@ -6,6 +6,7 @@ export 'inventory.dart';
 export 'order.dart';
 export 'product.dart';
 export 'settings.dart';
+export 'stock_transfer.dart';
 export 'shop.dart';
 export 'sync.dart';
 export 'user.dart';

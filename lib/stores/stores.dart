@@ -5,3 +5,4 @@ export 'pass_store.dart';
 export 'product_store.dart';
 export 'shop_store.dart';
 export 'sync_store.dart';
+export 'transfer_store.dart';

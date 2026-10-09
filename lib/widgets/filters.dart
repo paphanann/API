@@ -4,17 +4,18 @@ import '../app/theme.dart';
 import '../core/format.dart';
 
 class DateRangeField extends StatelessWidget {
-  const DateRangeField({super.key, required this.from, required this.to, required this.onTap});
+  const DateRangeField({super.key, required this.from, required this.to, required this.onTap, this.width = 240});
 
   final DateTime? from;
   final DateTime? to;
   final VoidCallback onTap;
+  final double width;
 
   @override
   Widget build(BuildContext context) {
     final has = from != null && to != null;
     return SizedBox(
-      width: 240,
+      width: width,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -75,6 +76,7 @@ class Drop<T> extends StatelessWidget {
             initialValue: items.any((e) => e.value == value) ? value : null,
             items: items,
             onChanged: onChanged,
+            isExpanded: true,
             dropdownColor: Colors.white,
             borderRadius: BorderRadius.circular(8),
             decoration: const InputDecoration(

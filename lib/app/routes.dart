@@ -10,6 +10,8 @@ import '../screens/order_detail.dart';
 import '../screens/orders.dart';
 import '../screens/products.dart';
 import '../screens/settings.dart';
+import '../screens/stock_transfer_create.dart';
+import '../screens/stock_transfer_history.dart';
 import '../screens/sync_log.dart';
 import 'session.dart';
 import '../widgets/shell.dart';
@@ -116,6 +118,13 @@ GoRouter buildRouter(Session session) {
           ),
           GoRoute(path: '/products', builder: (_, _) => const ProductsScreen()),
           GoRoute(path: '/inventory', builder: (_, _) => const InventoryScreen()),
+          GoRoute(
+            path: '/stock-transfer',
+            builder: (_, _) => const StockTransferCreateScreen(),
+            routes: [
+              GoRoute(path: 'history', builder: (_, _) => const StockTransferHistoryScreen()),
+            ],
+          ),
           GoRoute(path: '/connections', builder: (_, _) => const ConnectScreen()),
           GoRoute(path: '/integration', builder: (_, _) => const ConnectScreen()),
           GoRoute(path: '/sync-log', builder: (_, _) => const SyncLogScreen()),

@@ -16,7 +16,7 @@ class DashStore extends PassStore {
     notifyListeners();
     try {
       var dash = await Api.getDashboard();
-      if (!dash.hasStats || !dash.hasCharts) {
+      if (!dash.hasCharts) {
         try {
           dash = dash.merge(await Api.dashboardFromLive());
         } catch (_) {}

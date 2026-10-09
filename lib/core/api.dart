@@ -69,7 +69,7 @@ class Api {
   static List<dynamic> _list(dynamic json) {
     if (json is List) return json;
     if (json is Map) {
-      for (final key in ['data', 'connections', 'orders', 'logs', 'items', 'result', 'products', 'inventory', 'stocks', 'warehouses', 'rows', 'value', 'list', 'users', 'accounts']) {
+      for (final key in ['data', 'connections', 'orders', 'logs', 'items', 'result', 'products', 'inventory', 'stocks', 'warehouses', 'transfers', 'stockTransfers', 'rows', 'value', 'list', 'users', 'accounts']) {
         final v = json[key];
         if (v is List) return v;
         if (v is Map) {
@@ -130,15 +130,63 @@ class Api {
     if (platform != null && platform.isNotEmpty) query['platform'] = platform;
     final q = query.isEmpty ? null : query;
 
-    var res = await _send(http.get(_u('/api/warehouses', q), headers: _headers()));
-    if (res.statusCode == 404) {
-      res = await _send(http.get(_u('/api/inventory', q), headers: _headers()));
-    }
-    if (res.statusCode == 404) {
-      res = await _send(http.get(_u('/api/stocks', q), headers: _headers()));
-    }
+    final res = await _send(http.get(_u('/api/inventory', q), headers: _headers()));
     final rows = _list(await _json(res));
     return [for (final row in rows) if (row is Map) StockRow.fromApi(Map<String, dynamic>.from(row))];
+  }
+
+  static Future<List<StockTransfer>> getStockTransfers() async {
+    for (final path in ['/api/stock-transfers', '/api/inventory/transfers', '/api/transfers']) {
+      try {
+        final res = await _send(http.get(_u(path), headers: _headers()));
+        if (res.statusCode == 404) continue;
+        final rows = _list(await _json(res));
+        return [for (final row in rows) if (row is Map) StockTransfer.fromApi(Map<String, dynamic>.from(row))];
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) continue;
+        rethrow;
+      }
+    }
+    return [];
+  }
+
+  static Future<StockTransfer> createStockTransfer({
+    required String fromWarehouseId,
+    required String toWarehouseId,
+    required List<StockTransferLine> items,
+    String note = '',
+  }) async {
+    final body = jsonEncode({
+      'fromWarehouseId': fromWarehouseId,
+      'toWarehouseId': toWarehouseId,
+      'note': note,
+      'items': [for (final i in items) i.toJson()],
+    });
+    ApiException? last;
+    for (final path in ['/api/stock-transfers', '/api/inventory/transfers', '/api/transfers']) {
+      try {
+        final res = await _send(http.post(_u(path), headers: _headers(json: true), body: body));
+        if (res.statusCode == 404) continue;
+        final data = await _json(res);
+        if (data is Map) return StockTransfer.fromApi(Map<String, dynamic>.from(data));
+        return StockTransfer(
+          id: '-',
+          fromWarehouseId: fromWarehouseId,
+          toWarehouseId: toWarehouseId,
+          items: items,
+          note: note,
+          status: 'success',
+          createdAt: DateTime.now(),
+        );
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) {
+          last = e;
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw last ?? ApiException('ไม่สามารถสร้างรายการโอนสต็อกได้');
   }
 
   static Future<List<Product>> getProducts({String? platform}) async {
@@ -186,18 +234,9 @@ class Api {
   }
 
   static Future<List<StaffUser>> getUsers() async {
-    for (final path in ['/api/users', '/api/settings/users']) {
-      try {
-        final res = await _send(http.get(_u(path), headers: _headers()));
-        if (res.statusCode == 404) continue;
-        final rows = _list(await _json(res));
-        return [for (final row in rows) if (row is Map) StaffUser.fromApi(Map<String, dynamic>.from(row))];
-      } on ApiException catch (e) {
-        if (e.statusCode == 404) continue;
-        rethrow;
-      }
-    }
-    return [];
+    final res = await _send(http.get(_u('/api/users'), headers: _headers()));
+    final rows = _list(await _json(res));
+    return [for (final row in rows) if (row is Map) StaffUser.fromApi(Map<String, dynamic>.from(row))];
   }
 
   static Future<StaffUser> saveUser(StaffUser user, {String? password}) async {
@@ -253,27 +292,19 @@ class Api {
   }
 
   static Future<Order?> getOrder(String id) async {
-    final encoded = Uri.encodeComponent(id);
-    final tries = [
-      _u('/api/orders/$encoded'),
-      _u('/api/orders/detail', {'id': id}),
-      _u('/api/orders/detail', {'orderNo': id, 'order_sn': id}),
-    ];
-    for (final uri in tries) {
-      try {
-        final res = await _send(http.get(uri, headers: _headers()));
-        if (res.statusCode == 404) continue;
-        final data = await _json(res);
-        if (data is! Map) continue;
-        final map = Map<String, dynamic>.from(data);
-        final nested = pick(map, ['data', 'Data', 'order', 'Order', 'result', 'Result']);
-        if (nested is Map) return Order.fromApi(Map<String, dynamic>.from(nested));
-        return Order.fromApi(map);
-      } on ApiException catch (e) {
-        if (e.statusCode == 404 || e.statusCode == 403) continue;
-      } catch (_) {}
+    try {
+      final res = await _send(http.get(_u('/api/orders/${Uri.encodeComponent(id)}'), headers: _headers()));
+      if (res.statusCode == 404) return null;
+      final data = await _json(res);
+      if (data is! Map) return null;
+      final map = Map<String, dynamic>.from(data);
+      final nested = pick(map, ['data', 'Data', 'order', 'Order', 'result', 'Result']);
+      if (nested is Map) return Order.fromApi(Map<String, dynamic>.from(nested));
+      return Order.fromApi(map);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
     }
-    return null;
   }
 
   static Future<List<Order>> getOrders({String? platform}) async {
@@ -286,6 +317,13 @@ class Api {
   static Future<void> syncPlatform(Channel channel) async {
     final res = await _send(http.post(_u('/api/sync/${channel.apiSlug}'), headers: _headers(json: true)));
     await _json(res);
+  }
+
+  static Future<Map<String, dynamic>> syncJob(String jobId) async {
+    final res = await _send(http.get(_u('/api/sync/jobs/${Uri.encodeComponent(jobId)}'), headers: _headers()));
+    final data = await _json(res);
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {};
   }
 
   static Future<Map<String, dynamic>> syncNow({bool force = false}) async {
@@ -357,22 +395,6 @@ class Api {
       for (final x in identities)
         if (x.trim().isNotEmpty && x != '-') x.trim().toLowerCase(),
     };
-
-    for (final path in ['/api/auth/me', '/api/me', '/api/users/me']) {
-      try {
-        final res = await _send(http.get(_u(path), headers: _headers()));
-        if (res.statusCode == 404 || res.statusCode == 401 || res.statusCode == 403) continue;
-        final data = await _json(res);
-        if (data is! Map) continue;
-        final map = Map<String, dynamic>.from(data);
-        final nested = pick(map, ['user', 'User', 'data', 'Data']);
-        final user = nested is Map ? Map<String, dynamic>.from(nested) : map;
-        final role = pickRole(user);
-        if (role.isNotEmpty) return role;
-      } on ApiException catch (e) {
-        if (e.statusCode == 404 || e.statusCode == 401 || e.statusCode == 403) continue;
-      } catch (_) {}
-    }
 
     if (ids.isEmpty) return '';
     try {

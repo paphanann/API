@@ -40,16 +40,7 @@ class OrderStore extends PassStore {
     error = null;
     notifyListeners();
     try {
-      if (platform == null) {
-        final chunks = await Future.wait([
-          Api.getOrders(platform: Channel.shopee.apiPlatform),
-          Api.getOrders(platform: Channel.tiktok.apiPlatform),
-          Api.getOrders(platform: Channel.lazada.apiPlatform),
-        ]);
-        orders = [for (final chunk in chunks) ...chunk];
-      } else {
-        orders = await Api.getOrders(platform: platform);
-      }
+      orders = await Api.getOrders(platform: platform);
     } catch (e) {
       error = e is ApiException ? e.message : e.toString();
       orders = [];

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web/web.dart' as web;
 
 import '../core/api.dart';
+import '../models/user.dart';
 
 /// ล็อกอินผ่าน Backend ที่ตรวจจากฐานข้อมูล 
 class Session extends ChangeNotifier {
@@ -102,6 +103,11 @@ class Session extends ChangeNotifier {
 
   Future<void> resolveRole() async {
     if (!loggedIn) return;
+    try {
+      final users = await Api.getUsers();
+      if (syncFromUsers(users)) return;
+    } catch (_) {}
+
     var next = role.trim();
     if (next.isEmpty) next = Api.roleFromToken(Api.token);
     if (next.isEmpty) {
@@ -111,6 +117,58 @@ class Session extends ChangeNotifier {
     role = next;
     _persist();
     notifyListeners();
+  }
+
+  /// ชื่อมุมขวาบนให้ตรงกับแถวผู้ใช้ในตาราง ตามอีเมลที่ล็อกอินอยู่
+  bool syncFromUsers(List<StaffUser> users) {
+    if (!loggedIn) return false;
+    final emailKey = email.trim().toLowerCase();
+    final nameKey = name.trim().toLowerCase();
+    StaffUser? match;
+    if (emailKey.isNotEmpty && emailKey != '-') {
+      for (final user in users) {
+        final mail = user.email.trim().toLowerCase();
+        final id = user.id.trim().toLowerCase();
+        if (mail == emailKey || id == emailKey) {
+          match = user;
+          break;
+        }
+      }
+    }
+    if (match == null && nameKey.isNotEmpty && nameKey != '-') {
+      for (final user in users) {
+        if (user.name.trim().toLowerCase() == nameKey) {
+          match = user;
+          break;
+        }
+      }
+    }
+    if (match == null) {
+      final roleKey = role.trim().toLowerCase();
+      final sameRole = [
+        for (final user in users)
+          if (user.role.trim().toLowerCase() == roleKey && roleKey.isNotEmpty) user,
+      ];
+      final nameInList = users.any((user) => user.name.trim().toLowerCase() == nameKey);
+      if (!nameInList && sameRole.length == 1) match = sameRole.first;
+    }
+    if (match == null) return false;
+
+    var changed = false;
+    final nextName = match.name.trim();
+    if (nextName.isNotEmpty && nextName != '-' && nextName != name) {
+      name = nextName;
+      changed = true;
+    }
+    final nextRole = match.role.trim();
+    if (nextRole.isNotEmpty && nextRole != '-' && nextRole.toLowerCase() != role.toLowerCase()) {
+      role = nextRole;
+      changed = true;
+    }
+    if (!changed) return false;
+    _persist();
+    notifyListeners();
+    return true;
   }
 
   void logout() {

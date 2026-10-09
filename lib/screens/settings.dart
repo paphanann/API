@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
+import '../app/session.dart';
 import '../app/theme.dart';
 import '../core/api.dart';
 import '../core/config.dart';
@@ -170,6 +171,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     try {
       _users = await Api.getUsers();
+      Session.instance.syncFromUsers(_users);
     } catch (_) {
       _users = [];
     }
@@ -310,6 +312,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _reloadUsers() async {
     try {
       final users = await Api.getUsers();
+      Session.instance.syncFromUsers(users);
       if (mounted) setState(() => _users = users);
     } catch (e) {
       if (!mounted) return;

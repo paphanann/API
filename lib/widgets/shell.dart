@@ -120,6 +120,8 @@ class AppShell extends StatelessWidget {
     if (path == '/inventory') return '';
     if (path.startsWith('/products')) return 'สินค้า';
     if (path.startsWith('/inventory')) return 'คลังสินค้า';
+    if (path == '/stock-transfer/history') return '';
+    if (path.startsWith('/stock-transfer')) return '';
     if (path.startsWith('/connections') || path.startsWith('/integration')) return 'การเชื่อมต่อ marketplace';
     if (path.startsWith('/sync-log/')) return 'Error Detail';
     if (path.startsWith('/sync-log')) return 'Sync Error Log';
@@ -128,20 +130,38 @@ class AppShell extends StatelessWidget {
   }
 }
 
-class SideMenu extends StatelessWidget {
+class SideMenu extends StatefulWidget {
   const SideMenu({super.key, required this.session, this.onPick});
 
   final Session session;
   final VoidCallback? onPick;
 
+  @override
+  State<SideMenu> createState() => _SideMenuState();
+}
+
+class _SideMenuState extends State<SideMenu> {
+  bool _stockOpen = true;
+
   bool _on(String loc, String path) {
     if (path == '/') return loc == '/';
+    if (path == '/stock-transfer') return loc == '/stock-transfer';
     return loc == path || loc.startsWith('$path/') || (path == '/connections' && loc.startsWith('/integration'));
+  }
+
+  void _go(BuildContext context, String to) {
+    widget.onPick?.call();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (context.mounted) context.go(to);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final loc = GoRouterState.of(context).uri.path;
+    final session = widget.session;
+    final stockOn = loc.startsWith('/stock-transfer');
+    final stockOpen = _stockOpen || stockOn;
 
     return Container(
       width: 248,
@@ -159,25 +179,50 @@ class SideMenu extends StatelessWidget {
               child: Text('Marketplace Integration', style: TextStyle(color: Colors.white54, fontSize: 11)),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (final m in _menus)
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                for (final m in _menus) ...[
                   if (!session.isUserRole || !_adminMenus.contains(m.$1))
                     _tile(
                       icon: m.$3,
                       label: m.$2,
                       selected: _on(loc, m.$1),
-                      onTap: () {
-                        final to = m.$1;
-                        onPick?.call();
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (context.mounted) context.go(to);
-                        });
-                      },
+                      onTap: () => _go(context, m.$1),
                     ),
+                  if (m.$1 == '/inventory') ...[
+                    _tile(
+                      icon: Icons.swap_horiz_rounded,
+                      label: 'โอนสต็อก',
+                      selected: false,
+                      trailing: Icon(
+                        stockOpen ? Icons.expand_less_rounded : Icons.keyboard_arrow_down_rounded,
+                        color: Colors.white54,
+                        size: 20,
+                      ),
+                      onTap: () => setState(() => _stockOpen = !stockOpen),
+                    ),
+                    if (stockOpen) ...[
+                      _tile(
+                        icon: Icons.note_add_outlined,
+                        label: 'สร้างรายการโอน',
+                        selected: loc == '/stock-transfer',
+                        indent: true,
+                        onTap: () => _go(context, '/stock-transfer'),
+                      ),
+                      _tile(
+                        icon: Icons.history_edu_outlined,
+                        label: 'ประวัติการโอนสต็อก',
+                        selected: loc == '/stock-transfer/history',
+                        indent: true,
+                        onTap: () => _go(context, '/stock-transfer/history'),
+                      ),
+                    ],
+                  ],
+                ],
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                   child: Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
@@ -188,14 +233,15 @@ class SideMenu extends StatelessWidget {
                   selected: false,
                   danger: true,
                   onTap: () {
-                    onPick?.call();
+                    widget.onPick?.call();
                     session.logout();
                   },
                 ),
               ],
             ),
+            ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Container(
@@ -226,6 +272,8 @@ class SideMenu extends StatelessWidget {
     required bool selected,
     required VoidCallback onTap,
     bool danger = false,
+    bool indent = false,
+    Widget? trailing,
   }) {
     final c = danger ? const Color(0xFFFCA5A5) : (selected ? Colors.white : Colors.white70);
     return Padding(
@@ -242,18 +290,19 @@ class SideMenu extends StatelessWidget {
           highlightColor: Colors.white10,
           child: Container(
             height: 44,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: EdgeInsets.fromLTRB(indent ? 28 : 12, 0, 12, 0),
             child: Row(
               children: [
                 Icon(icon, color: danger ? c : (selected ? Colors.white : Colors.white60), size: 20),
                 const SizedBox(width: 12),
-                Flexible(
+                Expanded(
                   child: Text(
                     label,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(color: c, fontWeight: selected ? FontWeight.w600 : FontWeight.w500, fontSize: 14),
                   ),
                 ),
+                if (trailing != null) trailing,
               ],
             ),
           ),
