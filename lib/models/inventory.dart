@@ -4,6 +4,8 @@ import 'channel.dart';
 class StockRow {
   const StockRow({
     this.channel,
+    this.shopName = '',
+    this.shopId = '',
     required this.warehouseName,
     required this.warehouseId,
     required this.sapWhsCode,
@@ -27,6 +29,8 @@ class StockRow {
 
     return StockRow(
       channel: channel,
+      shopName: pickPlainStr(m, ['ShopName', 'shopName', 'shop_name', 'SellerName', 'sellerName'], or: ''),
+      shopId: pickPlainStr(m, ['ShopId', 'shopId', 'shop_id', 'SellerId', 'sellerId', 'seller_id'], or: ''),
       warehouseName: pickStr(m, [
         'WarehouseName',
         'warehouseName',
@@ -71,6 +75,8 @@ class StockRow {
   }
 
   final Channel? channel;
+  final String shopName;
+  final String shopId;
   final String warehouseName;
   final String warehouseId;
   final String sapWhsCode;
@@ -78,4 +84,21 @@ class StockRow {
   final bool isDefault;
   final String status;
   final DateTime? updatedAt;
+
+  String get key => '${channel?.name ?? ''}|$shopId|$warehouseId|$warehouseName';
+
+  StockRow copyWith({String? sapWhsCode, String? shopName, String? shopId}) {
+    return StockRow(
+      channel: channel,
+      shopName: shopName ?? this.shopName,
+      shopId: shopId ?? this.shopId,
+      warehouseName: warehouseName,
+      warehouseId: warehouseId,
+      sapWhsCode: sapWhsCode ?? this.sapWhsCode,
+      stock: stock,
+      isDefault: isDefault,
+      status: status,
+      updatedAt: updatedAt,
+    );
+  }
 }

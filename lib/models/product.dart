@@ -64,6 +64,8 @@ class Product {
     required this.status,
     required this.synced,
     this.productId = '',
+    this.shopId = '',
+    this.companyId = '',
     this.imageUrl = '',
     this.sapItemCode = '',
     this.variants = const [],
@@ -96,6 +98,8 @@ class Product {
     return Product(
       sku: pickStr(m, ['Sku', 'sku', 'MarketplaceSku', 'ItemId', 'item_id'], or: '-'),
       productId: pickStr(m, ['ProductId', 'productId', 'ItemId', 'item_id', 'ParentId', 'parentId'], or: ''),
+      shopId: pickStr(m, ['ShopId', 'shopId', 'shop_id'], or: ''),
+      companyId: pickStr(m, ['CompanyId', 'companyId', 'company_id'], or: ''),
       name: pickStr(m, ['Name', 'name', 'ProductName', 'item_name'], or: '-'),
       channel: ChannelX.fromApi(pickStr(m, ['Platform', 'platform'], or: '')) ?? Channel.shopee,
       price: pickDouble(m, ['Price', 'price', 'Amount', 'MinPrice', 'minPrice']),
@@ -141,8 +145,11 @@ class Product {
     final groups = <String, List<Map<String, dynamic>>>{};
     for (var i = 0; i < flat.length; i++) {
       final m = flat[i];
-      var key = pickStr(m, ['ProductId', 'productId', 'ParentId', 'parentId', 'ItemId', 'item_id'], or: '');
-      if (key.isEmpty || key == '-') key = '__solo_$i';
+      final productKey = pickStr(m, ['ProductId', 'productId', 'ParentId', 'parentId', 'ItemId', 'item_id'], or: '');
+      final shopKey = pickStr(m, ['ShopId', 'shopId', 'shop_id'], or: '');
+      final platformKey = pickStr(m, ['Platform', 'platform'], or: '');
+      var key = '$platformKey|$shopKey|$productKey';
+      if (productKey.isEmpty || productKey == '-') key = '__solo_$i';
       groups.putIfAbsent(key, () => []).add(m);
     }
     final grouped = <Product>[];
@@ -161,6 +168,8 @@ class Product {
 
   final String sku;
   final String productId;
+  final String shopId;
+  final String companyId;
   final String name;
   final Channel channel;
   final double price;

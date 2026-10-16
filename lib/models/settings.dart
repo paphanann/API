@@ -20,6 +20,8 @@ class AppSettings {
     this.environment = 'Sandbox',
     this.database = '',
     this.username = '',
+    this.host = '',
+    this.port = '',
     this.createSalesOrder = true,
     this.createDelivery = true,
     this.createReturn = true,
@@ -68,6 +70,8 @@ class AppSettings {
       endpoint: pickStr(m, ['endpoint', 'Endpoint'], or: ''),
       database: pickStr(m, ['database', 'Database', 'CompanyDatabase'], or: ''),
       username: pickStr(m, ['username', 'Username', 'ErpUser'], or: ''),
+      host: pickStr(m, ['host', 'Host', 'server', 'Server', 'SqlHost'], or: ''),
+      port: pickStr(m, ['port', 'Port', 'SqlPort'], or: ''),
       autoSync: pick(m, ['autoSync', 'AutoSync']) == true,
       notifyError: pick(m, ['notifyError', 'NotifyError']) != false,
       notifySuccess: pick(m, ['notifySuccess', 'NotifySuccess']) == true,
@@ -103,6 +107,8 @@ class AppSettings {
   final String endpoint;
   final String database;
   final String username;
+  final String host;
+  final String port;
   final bool autoSync;
   final bool notifyError;
   final bool notifySuccess;
@@ -121,7 +127,7 @@ class AppSettings {
   final DateTime? erpLastChecked;
   final String logo;
 
-  Map<String, dynamic> toJson({String? password}) => {
+  Map<String, dynamic> toJson({String? password, bool clearPassword = false}) => {
         'companyName': companyName,
         'companyCode': companyCode,
         'taxId': taxId,
@@ -137,7 +143,10 @@ class AppSettings {
         'endpoint': endpoint,
         'database': database,
         'username': username,
+        if (host.isNotEmpty) 'host': host,
+        if (port.isNotEmpty) 'port': port,
         if (password != null && password.isNotEmpty) 'password': password,
+        if (clearPassword) 'clearPassword': true,
         'autoSync': autoSync,
         'notifyError': notifyError,
         'notifySuccess': notifySuccess,
@@ -168,12 +177,41 @@ const _docActions = {
   'creditMemo',
 };
 
+class SapDatabase {
+  const SapDatabase({required this.name, this.detail = ''});
+
+  final String name;
+  final String detail;
+}
+
+class ErpTestResult {
+  const ErpTestResult({this.message = 'เชื่อมต่อสำเร็จ', this.databases = const []});
+
+  final String message;
+  final List<SapDatabase> databases;
+}
+
+List<SapDatabase> parseSapDatabases(dynamic raw) {
+  if (raw is! List) return const [];
+  return [
+    for (final x in raw)
+      if (x is Map)
+        SapDatabase(
+          name: pickStr(Map<String, dynamic>.from(x), ['name', 'Name', 'database', 'Database', 'CompanyDB', 'companyDB'], or: ''),
+          detail: pickStr(Map<String, dynamic>.from(x), ['detail', 'description', 'Description', 'type', 'Type', 'label', 'Label'], or: ''),
+        )
+      else if ('$x'.trim().isNotEmpty)
+        SapDatabase(name: '$x'.trim()),
+  ].where((e) => e.name.isNotEmpty).toList();
+}
+
 class ErpOptions {
   const ErpOptions({
     this.cardCodes = const [],
     this.warehouses = const [],
     this.branches = const [],
     this.taxCodes = const [],
+    this.databases = const [],
   });
 
   factory ErpOptions.fromApi(Map<String, dynamic> m) {
@@ -191,6 +229,7 @@ class ErpOptions {
       warehouses: codes(['warehouses', 'Warehouses', 'whsCodes', 'WhsCode']),
       branches: codes(['branches', 'Branches', 'businessPlaces']),
       taxCodes: codes(['taxCodes', 'TaxCodes', 'taxes']),
+      databases: parseSapDatabases(pick(m, ['databases', 'Databases', 'companies', 'Companies', 'companyDatabases'])),
     );
   }
 
@@ -198,6 +237,7 @@ class ErpOptions {
   final List<String> warehouses;
   final List<String> branches;
   final List<String> taxCodes;
+  final List<SapDatabase> databases;
 }
 
 String _docAction(Map<String, dynamic> m, List<String> keys, bool legacyOn, String ifOn) {

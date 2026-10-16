@@ -135,6 +135,31 @@ class Api {
     return [for (final row in rows) if (row is Map) StockRow.fromApi(Map<String, dynamic>.from(row))];
   }
 
+  static Future<void> saveWarehouseMap({
+    required String sapWhsCode,
+    String? platform,
+    String? shopId,
+    String? warehouseId,
+  }) async {
+    final body = jsonEncode({
+      'sapWhsCode': sapWhsCode,
+      if (platform != null && platform.isNotEmpty) 'platform': platform,
+      if (shopId != null && shopId.isNotEmpty && shopId != '-') 'shopId': shopId,
+      if (warehouseId != null && warehouseId.isNotEmpty && warehouseId != '-') 'warehouseId': warehouseId,
+    });
+    for (final path in ['/api/inventory/mapping', '/api/warehouses/map', '/api/inventory/map']) {
+      try {
+        final res = await _send(http.put(_u(path), headers: _headers(json: true), body: body));
+        if (res.statusCode == 404) continue;
+        await _json(res);
+        return;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) continue;
+        rethrow;
+      }
+    }
+  }
+
   static Future<List<StockTransfer>> getStockTransfers() async {
     for (final path in ['/api/stock-transfers', '/api/inventory/transfers', '/api/transfers']) {
       try {
@@ -155,11 +180,22 @@ class Api {
     required String toWarehouseId,
     required List<StockTransferLine> items,
     String note = '',
+    String documentNo = '',
+    String requestedBy = '',
+    DateTime? dueDate,
+    String? platform,
   }) async {
     final body = jsonEncode({
       'fromWarehouseId': fromWarehouseId,
       'toWarehouseId': toWarehouseId,
       'note': note,
+      'reason': note,
+      'comments': note,
+      if (documentNo.isNotEmpty) 'documentNo': documentNo,
+      if (documentNo.isNotEmpty) 'referenceNo': documentNo,
+      if (requestedBy.isNotEmpty) 'requestedBy': requestedBy,
+      if (dueDate != null) 'dueDate': dueDate.toIso8601String(),
+      if (platform != null && platform.isNotEmpty) 'platform': platform,
       'items': [for (final i in items) i.toJson()],
     });
     ApiException? last;
@@ -170,13 +206,17 @@ class Api {
         final data = await _json(res);
         if (data is Map) return StockTransfer.fromApi(Map<String, dynamic>.from(data));
         return StockTransfer(
-          id: '-',
+          id: documentNo.isEmpty ? '-' : documentNo,
           fromWarehouseId: fromWarehouseId,
           toWarehouseId: toWarehouseId,
           items: items,
           note: note,
           status: 'success',
           createdAt: DateTime.now(),
+          dueDate: dueDate,
+          referenceNo: documentNo,
+          requestedBy: requestedBy,
+          platform: platform ?? '',
         );
       } on ApiException catch (e) {
         if (e.statusCode == 404) {
@@ -203,13 +243,28 @@ class Api {
     return AppSettings.blank();
   }
 
-  static Future<void> saveSettings(AppSettings settings, {String? password}) async {
+  static Future<void> saveSettings(AppSettings settings, {String? password, bool clearPassword = false}) async {
     final res = await _send(http.put(
       _u('/api/settings'),
       headers: _headers(json: true),
-      body: jsonEncode(settings.toJson(password: password)),
+      body: jsonEncode(settings.toJson(password: password, clearPassword: clearPassword)),
     ));
     await _json(res);
+  }
+
+  static Future<List<Map<String, dynamic>>> getSapItems() async {
+    final res = await _send(http.get(_u('/api/settings/sap-items'), headers: _headers()));
+    final data = await _json(res);
+    if (data is Map) {
+      final rows = pick(Map<String, dynamic>.from(data), ['items', 'Items', 'data', 'Data']);
+      if (rows is List) {
+        return [for (final row in rows) if (row is Map) Map<String, dynamic>.from(row)];
+      }
+    }
+    if (data is List) {
+      return [for (final row in data) if (row is Map) Map<String, dynamic>.from(row)];
+    }
+    return const [];
   }
 
   static Future<ErpOptions> getErpOptions() async {
@@ -220,7 +275,7 @@ class Api {
     return const ErpOptions();
   }
 
-  static Future<String> testErp(AppSettings settings, {String? password}) async {
+  static Future<ErpTestResult> testErp(AppSettings settings, {String? password}) async {
     final res = await _send(http.post(
       _u('/api/settings/test-erp'),
       headers: _headers(json: true),
@@ -228,9 +283,18 @@ class Api {
     ));
     final data = await _json(res);
     if (data is Map) {
-      return pickStr(Map<String, dynamic>.from(data), ['message', 'Message'], or: 'เชื่อมต่อสำเร็จ');
+      final map = Map<String, dynamic>.from(data);
+      final nested = pick(map, ['data', 'Data', 'result', 'Result']);
+      final extra = nested is Map ? Map<String, dynamic>.from(nested) : map;
+      return ErpTestResult(
+        message: pickStr(map, ['message', 'Message'], or: 'เชื่อมต่อสำเร็จ'),
+        databases: parseSapDatabases(
+          pick(extra, ['databases', 'Databases', 'companies', 'Companies', 'companyDatabases']) ??
+              pick(map, ['databases', 'Databases', 'companies', 'Companies', 'companyDatabases']),
+        ),
+      );
     }
-    return 'เชื่อมต่อสำเร็จ';
+    return const ErpTestResult();
   }
 
   static Future<List<StaffUser>> getUsers() async {
@@ -307,11 +371,14 @@ class Api {
     }
   }
 
-  static Future<List<Order>> getOrders({String? platform}) async {
-    final query = platform == null || platform.isEmpty ? null : {'platform': platform};
-    final res = await _send(http.get(_u('/api/orders', query), headers: _headers()));
+  static Future<List<Order>> getOrders({String? platform, String? shopId}) async {
+    final query = <String, String>{};
+    if (platform != null && platform.isNotEmpty) query['platform'] = platform;
+    if (shopId != null && shopId.isNotEmpty && shopId != '-') query['shopId'] = shopId;
+    final res = await _send(http.get(_u('/api/orders', query.isEmpty ? null : query), headers: _headers()));
     final rows = _list(await _json(res));
-    return [for (final row in rows) if (row is Map) Order.fromApi(Map<String, dynamic>.from(row))];
+    final fallback = ChannelX.fromApi(platform);
+    return [for (final row in rows) if (row is Map) Order.fromApi(Map<String, dynamic>.from(row), fallbackChannel: fallback)];
   }
 
   static Future<void> syncPlatform(Channel channel) async {
@@ -360,11 +427,31 @@ class Api {
     ).toString();
   }
 
-  static Future<String> disconnectPlatform(Channel channel) async {
+  static Future<String> removeShop(Channel channel, {String? shopId}) async {
+    final id = (shopId ?? '').trim();
+    final res = await _send(http.post(
+      _u('/api/connections/${channel.apiSlug}/remove'),
+      headers: _headers(json: true),
+      body: jsonEncode({
+        if (id.isNotEmpty && id != '-') 'shopId': id,
+      }),
+    ));
+    final data = await _json(res);
+    if (data is Map) {
+      final msg = pickStr(Map<String, dynamic>.from(data), ['message', 'Message'], or: '');
+      if (msg.isNotEmpty && msg != '-') return msg;
+    }
+    return 'ลบร้านค้าออกจากระบบ PASS แล้ว';
+  }
+
+  static Future<String> disconnectPlatform(Channel channel, {String? shopId}) async {
+    final id = (shopId ?? '').trim();
     final res = await _send(http.post(
       _u('/api/connections/${channel.apiSlug}/disconnect'),
       headers: _headers(json: true),
-      body: '{}',
+      body: jsonEncode({
+        if (id.isNotEmpty && id != '-') 'shopId': id,
+      }),
     ));
     final data = await _json(res);
     if (data is Map) {

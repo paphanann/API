@@ -20,21 +20,25 @@ class _OrdersScreenState extends State<OrdersScreen> {
   static const _pageSize = 10;
 
   String _ch = 'all';
+  String _shop = 'all';
   String _st = 'all';
   String _q = '';
   int _page = 1;
-  DateTime? _from;
+  DateTime? _from = DateTime(2026, 10, 1);
   DateTime? _to;
   final _search = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    final today = _dateOnly(DateTime.now());
-    _to = today;
-    _from = today.subtract(const Duration(days: 30));
+    final now = DateTime.now();
+    _to = DateTime(now.year, now.month, now.day);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) OrderStore.instance.load();
+      if (mounted) {
+        OrderStore.instance.load();
+        if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
+        if (InventoryStore.instance.rows.isEmpty) InventoryStore.instance.load();
+      }
     });
   }
 
@@ -48,13 +52,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   bool get _hasDateFilter => _from != null && _to != null;
 
+  String? get _platformQuery => _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform;
+
   Future<void> _searchTap() async {
     setState(() {
       _q = _search.text.trim();
       _page = 1;
     });
-    final platform = _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform;
-    await OrderStore.instance.load(platform: platform);
+    await OrderStore.instance.load(platform: _platformQuery);
   }
 
   void _onQuery(String v) {
@@ -65,10 +70,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   Future<void> _syncNow() async {
-    final platform = _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform;
     try {
       await MarketplaceSyncStore.instance.syncNow(force: false);
-      await OrderStore.instance.load(platform: platform);
+      await OrderStore.instance.load(platform: _platformQuery);
       if (!mounted) return;
       await showSystemStatusSnack(context);
     } catch (e) {
@@ -99,10 +103,71 @@ class _OrdersScreenState extends State<OrdersScreen> {
     });
   }
 
+  ShopConn? get _selectedShop {
+    if (_shop == 'all') return null;
+    for (final s in ShopStore.instance.realShops) {
+      if ('${s.channel.name}|${s.apiShopId}' == _shop) return s;
+      if ('${s.channel.name}|${s.shopId}' == _shop) return s;
+      if ('${s.channel.name}|${s.shop}' == _shop) return s;
+    }
+    return null;
+  }
+
+  bool _matchShop(Order o) {
+    final shop = _selectedShop;
+    if (shop == null) return true;
+    if (o.channel != shop.channel) return false;
+    final sameCh = [
+      for (final s in ShopStore.instance.realShops)
+        if (s.isReal && s.channel == shop.channel) s,
+    ];
+    if (sameCh.length <= 1) return true;
+    final orderKeys = {
+      for (final v in [o.shopId, o.shopName, o.companyId])
+        if (v.trim().isNotEmpty && v.trim() != '-') v.trim().toLowerCase(),
+    };
+    if (orderKeys.isEmpty) return true;
+    final want = shop.identityKeys;
+    return orderKeys.any((id) => want.contains(id) || want.any((w) => w.contains(id) || id.contains(w)));
+  }
+
+  ShopConn? _shopOf(Order o) {
+    final id = o.shopId.trim().toLowerCase();
+    for (final s in ShopStore.instance.realShops) {
+      if (s.channel != o.channel) continue;
+      if (id.isNotEmpty && id != '-' && s.identityKeys.contains(id)) return s;
+      if (o.shopName.trim().isNotEmpty && s.identityKeys.contains(o.shopName.trim().toLowerCase())) return s;
+    }
+    final same = [for (final s in ShopStore.instance.realShops) if (s.isReal && s.channel == o.channel) s];
+    return same.length == 1 ? same.first : null;
+  }
+
+  String _sapWhsFor(Order o) {
+    final shop = _shopOf(o);
+    if (shop != null) {
+      final w = ShopStore.instance.withMeta(shop).warehouse.trim();
+      if (w.isNotEmpty && w != '-') return warehouseLabel(w);
+    }
+    final codes = <String>{};
+    for (final r in InventoryStore.instance.rows) {
+      if (r.channel != o.channel) continue;
+      if (r.sapWhsCode.isEmpty || r.sapWhsCode == '-') continue;
+      if (shop != null) {
+        final keys = {r.shopId.trim().toLowerCase(), r.shopName.trim().toLowerCase()}..removeWhere((v) => v.isEmpty || v == '-');
+        if (keys.isEmpty || keys.any((id) => shop.identityKeys.contains(id))) codes.add(r.sapWhsCode);
+      } else if (o.shopId.trim().isNotEmpty && (r.shopId == o.shopId || r.shopName == o.shopId)) {
+        codes.add(r.sapWhsCode);
+      }
+    }
+    if (codes.length == 1) return warehouseLabel(codes.first);
+    return '-';
+  }
+
   List<Order> _filtered() {
     final q = _q.toLowerCase();
     return OrderStore.instance.orders.where((o) {
       if (_ch != 'all' && o.channel.name != _ch) return false;
+      if (!_matchShop(o)) return false;
       if (_st != 'all' && o.status.name != _st) return false;
       if (_hasDateFilter) {
         final day = _dateOnly(o.createdAt);
@@ -116,7 +181,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([OrderStore.instance, MarketplaceSyncStore.instance]),
+      listenable: Listenable.merge([
+        OrderStore.instance,
+        ShopStore.instance,
+        InventoryStore.instance,
+        MarketplaceSyncStore.instance,
+      ]),
       builder: (context, _) {
         final store = OrderStore.instance;
         final syncStore = MarketplaceSyncStore.instance;
@@ -155,13 +225,34 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           label: 'แพลตฟอร์ม',
                           value: _ch,
                           width: 160,
-                          onChanged: (v) => setState(() {
+                          onChanged: (v) {
                             _ch = v ?? 'all';
+                            _shop = 'all';
                             _page = 1;
-                          }),
+                            setState(() {});
+                            _searchTap();
+                          },
                           items: [
                             const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
                             ...Channel.values.map((c) => DropdownMenuItem(value: c.name, child: Text(c.label))),
+                          ],
+                        ),
+                        Drop<String>(
+                          label: 'ร้านค้า',
+                          value: _shop,
+                          width: 200,
+                          onChanged: (v) => setState(() {
+                            _shop = v ?? 'all';
+                            _page = 1;
+                          }),
+                          items: [
+                            const DropdownMenuItem(value: 'all', child: Text('ทุกร้าน')),
+                            for (final s in ShopStore.instance.realShops)
+                              if (s.isReal && (_ch == 'all' || s.channel.name == _ch))
+                                DropdownMenuItem(
+                                  value: '${s.channel.name}|${s.apiShopId.isNotEmpty ? s.apiShopId : s.shop}',
+                                  child: Text(s.displayName),
+                                ),
                           ],
                         ),
                         Drop<String>(
@@ -233,7 +324,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ],
                     const SizedBox(height: 16),
                     FillTable(
-                      minWidth: 1480,
+                      minWidth: 1780,
                       child: DataTable(
                         headingRowColor: tableHeadBg,
                         headingTextStyle: tableHead,
@@ -242,6 +333,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         columns: const [
                           DataColumn(label: Text('Order No.')),
                           DataColumn(label: Text('Platform')),
+                          DataColumn(label: Text('ชื่อร้าน')),
+                          DataColumn(label: Text('คลัง SAP')),
                           DataColumn(label: Text('วันที่')),
                           DataColumn(label: Text('ยอดรวม')),
                           DataColumn(label: Text('สถานะออเดอร์')),
@@ -256,6 +349,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
                               cells: [
                                 DataCell(Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600))),
                                 DataCell(ChannelLabel(channel: o.channel)),
+                                DataCell(Text(
+                                  ShopStore.instance.nameFor(channel: o.channel, shopId: o.shopId, shopName: o.shopName),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                )),
+                                DataCell(Text(_sapWhsFor(o))),
                                 DataCell(Text(dtFmt.format(o.createdAt))),
                                 DataCell(Text(baht.format(o.total), style: const TextStyle(fontWeight: FontWeight.w600))),
                                 DataCell(orderPill(o.status)),

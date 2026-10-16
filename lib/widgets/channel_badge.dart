@@ -36,22 +36,15 @@ class ChannelLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        ChannelDot(channel: channel, size: 20),
-        const SizedBox(width: 8),
-        ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxLabelWidth),
-          child: Text(
-            channel.label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            softWrap: false,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: channel.color),
-          ),
-        ),
-      ],
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxLabelWidth),
+      child: Text(
+        channel.label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        softWrap: false,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Pal.text),
+      ),
     );
   }
 }

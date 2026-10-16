@@ -10,3 +10,4 @@ export 'stock_transfer.dart';
 export 'shop.dart';
 export 'sync.dart';
 export 'user.dart';
+export 'warehouse.dart';

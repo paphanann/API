@@ -35,12 +35,12 @@ class OrderStore extends PassStore {
     }
   }
 
-  Future<void> load({String? platform}) async {
+  Future<void> load({String? platform, String? shopId}) async {
     loading = true;
     error = null;
     notifyListeners();
     try {
-      orders = await Api.getOrders(platform: platform);
+      orders = await Api.getOrders(platform: platform, shopId: shopId);
     } catch (e) {
       error = e is ApiException ? e.message : e.toString();
       orders = [];

@@ -1,15 +1,8 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:js_interop';
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
-import 'package:web/web.dart' as web;
 
 import '../app/session.dart';
 import '../app/theme.dart';
 import '../core/api.dart';
-import '../core/config.dart';
 import '../core/format.dart';
 import '../models/models.dart';
 import '../widgets/ui.dart';
@@ -23,7 +16,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   int _tab = 0;
-  int _permTab = 0;
   int _userPage = 1;
   static const _pageSize = 10;
 
@@ -34,9 +26,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _address = TextEditingController();
   final _email = TextEditingController();
   final _endpoint = TextEditingController();
+  final _host = TextEditingController();
+  final _port = TextEditingController();
   final _database = TextEditingController();
   final _username = TextEditingController();
   final _password = TextEditingController();
+  int _erpStep = 1;
+  bool _showPass = false;
+  String _dbQuery = '';
+  List<SapDatabase> _sapDbs = [];
   String _cardCode = '';
   String _warehouse = '';
   String _branch = '';
@@ -68,8 +66,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _erpOk;
   List<StaffUser> _users = [];
   String _logo = '';
-  Uint8List? _logoBytes;
-  String? _logoName;
 
   @override
   void initState() {
@@ -86,6 +82,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _address.dispose();
     _email.dispose();
     _endpoint.dispose();
+    _host.dispose();
+    _port.dispose();
     _database.dispose();
     _username.dispose();
     _password.dispose();
@@ -106,7 +104,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       numberFormat: _numberFormat,
       erp: _erp,
       environment: _env,
-      endpoint: _endpoint.text.trim(),
+      endpoint: _host.text.trim().isEmpty ? _endpoint.text.trim() : '${_host.text.trim()}:${_port.text.trim().isEmpty ? '14333' : _port.text.trim()}',
+      host: _host.text.trim(),
+      port: _port.text.trim(),
       database: _database.text.trim(),
       username: _username.text.trim(),
       autoSync: _auto,
@@ -143,6 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _address.text = s.address;
       _email.text = s.email;
       _endpoint.text = s.endpoint;
+      _applyHostPort(s);
       _database.text = s.database;
       _username.text = s.username;
       _cardCode = s.defaultCardCode;
@@ -164,8 +165,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _okNoti = s.notifySuccess;
       _erpChecked = s.erpLastChecked;
       _logo = s.logo;
-      _logoBytes = _bytesFromDataUrl(s.logo);
-      _logoName = null;
+      if (s.database.trim().isNotEmpty && (s.host.trim().isNotEmpty || s.endpoint.trim().isNotEmpty)) {
+        _erpStep = 3;
+      }
     } catch (e) {
       _error = e is ApiException ? e.message : e.toString();
     }
@@ -179,104 +181,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  Future<void> _save() async {
+  Future<bool> _save({bool quiet = false}) async {
     setState(() => _saving = true);
     try {
       await Api.saveSettings(_draft(), password: _password.text);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('บันทึกการตั้งค่าแล้ว')));
+      if (!mounted) return true;
+      if (!quiet) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('บันทึกการตั้งค่าแล้ว')));
+      }
+      if (mounted) setState(() => _saving = false);
+      return true;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
       );
-    }
-    if (mounted) setState(() => _saving = false);
-  }
-
-  Uint8List? _bytesFromDataUrl(String raw) {
-    if (!raw.startsWith('data:') || !raw.contains(',')) return null;
-    try {
-      return Uint8List.fromList(base64Decode(raw.substring(raw.indexOf(',') + 1)));
-    } catch (_) {
-      return null;
+      setState(() => _saving = false);
+      return false;
     }
   }
 
-  String _logoSrc(String raw) {
-    if (raw.isEmpty) return '';
-    if (raw.startsWith('data:') || raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-    if (raw.startsWith('/')) return '$apiUrl$raw';
-    return raw;
-  }
-
-  Future<void> _pickLogo() async {
-    final input = web.HTMLInputElement()
-      ..type = 'file'
-      ..accept = 'image/png,image/jpeg,.png,.jpg,.jpeg';
-    final done = Completer<web.File?>();
-    input.addEventListener(
-      'change',
-      (web.Event _) {
-        final files = input.files;
-        done.complete(files != null && files.length > 0 ? files.item(0) : null);
-      }.toJS,
-    );
-    input.click();
-    final file = await done.future;
-    if (file == null || !mounted) return;
-
-    final name = file.name.toLowerCase();
-    final okType = name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') ||
-        file.type == 'image/png' || file.type == 'image/jpeg';
-    if (!okType) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('อัปโหลดได้เฉพาะ PNG หรือ JPG')));
+  void _applyHostPort(AppSettings s) {
+    if (s.host.trim().isNotEmpty) {
+      _host.text = s.host.trim();
+      _port.text = s.port.trim().isEmpty ? '14333' : s.port.trim();
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ขนาดไฟล์ต้องไม่เกิน 2 MB')));
+    final t = s.endpoint.trim();
+    if (t.startsWith('http://') || t.startsWith('https://')) {
+      final u = Uri.tryParse(t);
+      _host.text = u?.host ?? '';
+      _port.text = (u != null && u.hasPort) ? '${u.port}' : '14333';
       return;
     }
-
-    final reader = web.FileReader();
-    final loaded = Completer<String>();
-    reader.addEventListener(
-      'load',
-      (web.Event _) {
-        final result = reader.result;
-        loaded.complete(result == null ? '' : (result as JSString).toDart);
-      }.toJS,
-    );
-    reader.addEventListener(
-      'error',
-      (web.Event _) {
-        if (!loaded.isCompleted) loaded.completeError('อ่านไฟล์ไม่สำเร็จ');
-      }.toJS,
-    );
-    reader.readAsDataURL(file);
-    try {
-      final dataUrl = await loaded.future;
-      if (!mounted || dataUrl.isEmpty) return;
-      setState(() {
-        _logo = dataUrl;
-        _logoBytes = _bytesFromDataUrl(dataUrl);
-        _logoName = file.name;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    final i = t.lastIndexOf(':');
+    if (i > 0) {
+      _host.text = t.substring(0, i);
+      _port.text = t.substring(i + 1);
+    } else {
+      _host.text = t;
+      _port.text = '14333';
     }
   }
 
-  Future<void> _testErp() async {
+  Future<void> _testErp({bool stay = false}) async {
+    if (_host.text.trim().isEmpty || _username.text.trim().isEmpty || _password.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กรอก Server, ชื่อผู้ใช้ และรหัสผ่าน'), backgroundColor: Pal.err),
+      );
+      return;
+    }
     setState(() {
       _testing = true;
       _erpOk = null;
     });
     try {
-      final msg = await Api.testErp(_draft(), password: _password.text);
-      _erpOk = msg;
+      final result = await Api.testErp(_draft(), password: _password.text);
+      _erpOk = result.message;
       _erpChecked = DateTime.now();
+      final seen = <String>{};
+      final dbs = <SapDatabase>[
+        for (final d in [...result.databases, ..._sapDbs])
+          if (seen.add(d.name)) d,
+      ];
+      if (_database.text.trim().isNotEmpty && !seen.contains(_database.text.trim())) {
+        dbs.insert(0, SapDatabase(name: _database.text.trim()));
+      }
+      _sapDbs = dbs;
+      _dbQuery = '';
+      if (stay) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('การเชื่อมต่อปกติ'), backgroundColor: Pal.ok),
+          );
+        }
+      } else {
+        _erpStep = 2;
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -296,6 +277,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _warehouses = opts.warehouses;
         _branches = opts.branches;
         _taxCodes = opts.taxCodes;
+        if (opts.databases.isNotEmpty) {
+          final seen = {for (final d in _sapDbs) d.name};
+          _sapDbs = [
+            ..._sapDbs,
+            for (final d in opts.databases)
+              if (seen.add(d.name)) d,
+          ];
+        }
       });
     } catch (_) {}
   }
@@ -380,9 +369,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           _tabs(),
           const SizedBox(height: 16),
-          if (_tab == 0) _companyTab(),
-          if (_tab == 1) _erpTab(),
-          if (_tab == 2) _usersTab(),
+          if (_tab == 0) _erpTab(),
+          if (_tab == 1) _usersTab(),
         ],
       ),
     );
@@ -424,9 +412,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       spacing: 10,
       runSpacing: 10,
       children: [
-        tab(0, Icons.apartment_outlined, 'ข้อมูลบริษัท'),
-        tab(1, Icons.dns_outlined, 'ERP / SAP'),
-        tab(2, Icons.manage_accounts_outlined, 'สิทธิ์การใช้งาน'),
+        tab(0, Icons.dns_outlined, 'ERP / SAP'),
+        tab(1, Icons.manage_accounts_outlined, 'สิทธิ์การใช้งาน'),
       ],
     );
   }
@@ -454,194 +441,493 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _saveBar() {
-    return Align(
-      alignment: Alignment.centerRight,
-      child: ElevatedButton(
-        onPressed: _saving ? null : _save,
-        child: Text(_saving ? 'กำลังบันทึก...' : 'บันทึกการตั้งค่า'),
-      ),
-    );
-  }
-
-  Widget _companyTab() {
-    return Panel(
-      pad: const EdgeInsets.fromLTRB(24, 22, 24, 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _header('ข้อมูลบริษัท', 'ตั้งค่าข้อมูลพื้นฐานของบริษัทที่ใช้ในการออกเอกสารและเชื่อมต่อระบบ', Icons.apartment_outlined),
-          const SizedBox(height: 22),
-          const Text('ข้อมูลทั่วไป', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-          const SizedBox(height: 14),
-          _pair(
-            _box('ชื่อบริษัท *', TextField(controller: _company)),
-            _box('รหัสบริษัท (Company Code)', TextField(controller: _code)),
-          ),
-          const SizedBox(height: 12),
-          _pair(
-            _box('เลขประจำตัวผู้เสียภาษี', TextField(controller: _tax)),
-            _box('เบอร์โทรศัพท์', TextField(controller: _phone)),
-          ),
-          const SizedBox(height: 12),
-          _pair(
-            _box('ที่อยู่', TextField(controller: _address, maxLines: 3)),
-            _box('อีเมล', TextField(controller: _email)),
-          ),
-          const SizedBox(height: 22),
-          const Text('ข้อมูลเพิ่มเติม', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-          const SizedBox(height: 14),
-          _pair(
-            _box('สกุลเงินเริ่มต้น', _drop(_currency, const ['THB - บาทไทย', 'USD - ดอลลาร์สหรัฐ', 'EUR - ยูโร'], (v) => _currency = v)),
-            _box('เขตเวลา (Time Zone)', _drop(_timezone, const ['Asia/Bangkok (UTC+7)', 'UTC'], (v) => _timezone = v)),
-          ),
-          const SizedBox(height: 12),
-          _pair(
-            _box('รูปแบบวันที่', _drop(_dateFormat, const ['DD/MM/YYYY', 'YYYY-MM-DD', 'MM/DD/YYYY'], (v) => _dateFormat = v)),
-            _box('รูปแบบตัวเลข', _drop(_numberFormat, const ['1,234.56', '1.234,56'], (v) => _numberFormat = v)),
-          ),
-          const SizedBox(height: 22),
-          const Text('โลโก้บริษัท', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-          const SizedBox(height: 12),
-          Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            child: InkWell(
-              onTap: _pickLogo,
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Pal.line),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: _logoPreview(),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _logoName ?? (_logo.isEmpty ? 'คลิกเพื่ออัปโหลด' : 'คลิกเพื่อเปลี่ยนโลโก้'),
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text('PNG, JPG ขนาดไม่เกิน 2 MB', style: TextStyle(color: Pal.muted, fontSize: 12)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _saveBar(),
-        ],
-      ),
-    );
-  }
-
-  Widget _logoPreview() {
-    if (_logoBytes != null) {
-      return Image.memory(_logoBytes!, fit: BoxFit.cover);
-    }
-    final src = _logoSrc(_logo);
-    if (src.isNotEmpty) {
-      return Image.network(
-        src,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => const LogoMark(size: 48, withName: false),
-      );
-    }
-    return const LogoMark(size: 48, withName: false);
-  }
-
   Widget _erpTab() {
-    return Panel(
-      pad: const EdgeInsets.fromLTRB(24, 22, 24, 22),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _header('การเชื่อมต่อ ERP / SAP', 'ตั้งค่าการเชื่อมต่อระบบ ERP/SAP และรูปแบบการสร้างเอกสาร', Icons.dns_outlined),
-          const SizedBox(height: 22),
-          const Text('ข้อมูลการเชื่อมต่อ', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-          const SizedBox(height: 14),
-          _pair(
-            _box('ระบบปลายทาง', _drop(_erp, const ['SAP Business One', 'SAP S/4HANA', 'Custom ERP'], (v) => _erp = v)),
-            _box('สภาพแวดล้อม', _drop(_env, const ['Sandbox', 'Production'], (v) => _env = v)),
-          ),
-          const SizedBox(height: 12),
-          _pair(
-            _box('Endpoint (Service Layer URL) *', TextField(controller: _endpoint)),
-            _box('ชื่อฐานข้อมูล (Company Database) *', TextField(controller: _database)),
-          ),
-          const SizedBox(height: 12),
-          _pair(
-            _box('ชื่อผู้ใช้', TextField(controller: _username)),
-            _box(
-              'รหัสผ่าน',
-              TextField(controller: _password, obscureText: true, decoration: const InputDecoration(hintText: '••••••••')),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Align(
-            alignment: Alignment.centerRight,
-            child: ElevatedButton(
-              onPressed: _testing ? null : _testErp,
-              child: Text(_testing ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อ'),
-            ),
-          ),
-          if (_erpOk != null) ...[
-            const SizedBox(height: 12),
+    if (_erpStep == 3) return _successStep();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('การเชื่อมต่อ SAP', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        const Text('เชื่อมต่อฐานข้อมูล SAP Business One เพื่อใช้งานข้อมูลในระบบ', style: TextStyle(color: Pal.muted, fontSize: 14)),
+        const SizedBox(height: 24),
+        _erpStepper(),
+        const SizedBox(height: 20),
+        if (_erpStep == 1) _serverStep() else _databaseStep(),
+      ],
+    );
+  }
+
+  Widget _erpStepper() {
+    Widget step(int n, String title, String sub, {required bool done, required bool on}) {
+      return Expanded(
+        child: Row(
+          children: [
             Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Pal.okBg, borderRadius: BorderRadius.circular(10)),
-              child: Row(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: done || on ? Pal.primary : Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: done || on ? Pal.primary : Pal.line, width: 2),
+              ),
+              child: done
+                  ? const Icon(Icons.check_rounded, color: Colors.white, size: 20)
+                  : Text('$n', style: TextStyle(color: on ? Colors.white : Pal.muted, fontWeight: FontWeight.w800)),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.check_circle, color: Pal.ok, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _erpChecked == null ? _erpOk! : 'เชื่อมต่อสำเร็จ    Last checked: ${dtFmt.format(_erpChecked!)}',
-                      style: const TextStyle(color: Pal.ok, fontWeight: FontWeight.w600),
-                    ),
-                  ),
+                  Text(title, style: TextStyle(fontWeight: FontWeight.w800, color: done || on ? Pal.text : Pal.muted)),
+                  Text(sub, style: const TextStyle(color: Pal.muted, fontSize: 12)),
                 ],
               ),
             ),
           ],
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        step(1, 'เชื่อมต่อ Server', _erpStep == 2 ? 'เชื่อมต่อสำเร็จ' : 'กรอกข้อมูลเพื่อเชื่อมต่อ SQL Server', done: _erpStep == 2, on: _erpStep == 1),
+        Expanded(
+          child: Container(height: 2, margin: const EdgeInsets.symmetric(horizontal: 8), color: _erpStep == 2 ? Pal.primary : Pal.line),
+        ),
+        step(2, 'เลือกฐานข้อมูล', 'เลือกฐานข้อมูล SAP Business One', done: false, on: _erpStep == 2),
+      ],
+    );
+  }
+
+  Widget _serverStep() {
+    return Panel(
+      pad: const EdgeInsets.fromLTRB(24, 22, 24, 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: Pal.primarySoft, borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.dns_outlined, color: Pal.primary),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('เชื่อมต่อ SAP Server', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                    SizedBox(height: 2),
+                    Text('กรอกข้อมูลของ Microsoft SQL Server ที่ติดตั้ง SAP Business One', style: TextStyle(color: Pal.muted, fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 22),
-          const Text('การตั้งค่าการสร้างเอกสาร', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-          const SizedBox(height: 14),
-          _quad(
-            _box('เมื่อมีคำสั่งซื้อจาก Marketplace', _docDrop(_onOrder, (v) => _onOrder = v)),
-            _box('เมื่อมีคำสั่งจัดส่ง', _docDrop(_onShip, (v) => _onShip = v)),
-            _box('เมื่อมีการคืนสินค้า', _docDrop(_onReturn, (v) => _onReturn = v)),
-            _box('เมื่อมีการคืนเงิน', _docDrop(_onRefund, (v) => _onRefund = v)),
+          _box(
+            'Server / Host *',
+            TextField(
+              controller: _host,
+              decoration: const InputDecoration(hintText: 'เช่น 192.168.1.10'),
+            ),
           ),
-          const SizedBox(height: 18),
-          const Text('ค่าเริ่มต้น (Default)', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+          const SizedBox(height: 4),
+          const Text('IP Address หรือ Hostname ของ SQL Server', style: TextStyle(color: Pal.muted, fontSize: 12)),
           const SizedBox(height: 14),
-          _quad(
-            _box('ลูกค้าเริ่มต้น (CardCode)', _codeDrop(_cardCode, _cardCodes, (v) => _cardCode = v)),
-            _box('คลังสินค้า (WhsCode)', _codeDrop(_warehouse, _warehouses, (v) => _warehouse = v)),
-            _box('สาขา (Branch)', _codeDrop(_branch, _branches, (v) => _branch = v)),
-            _box('รหัสภาษี (Tax Code)', _codeDrop(_taxCode, _taxCodes, (v) => _taxCode = v)),
+          _box(
+            'Port *',
+            TextField(
+              controller: _port,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(hintText: '14333'),
+            ),
           ),
-          const SizedBox(height: 20),
-          _saveBar(),
+          const SizedBox(height: 4),
+          const Text('พอร์ตสำหรับเชื่อมต่อ (ปกติ 14333)', style: TextStyle(color: Pal.muted, fontSize: 12)),
+          const SizedBox(height: 14),
+          _box('ชื่อผู้ใช้ *', TextField(controller: _username)),
+          const SizedBox(height: 14),
+          _box(
+            'รหัสผ่าน *',
+            TextField(
+              controller: _password,
+              obscureText: !_showPass,
+              decoration: InputDecoration(
+                suffixIcon: IconButton(
+                  onPressed: () => setState(() => _showPass = !_showPass),
+                  icon: Icon(_showPass ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            height: 46,
+            child: ElevatedButton.icon(
+              onPressed: _testing ? null : _testErp,
+              icon: const Icon(Icons.dns_outlined, size: 18),
+              label: Text(_testing ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อ Server'),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  List<SapDatabase> get _visibleDbs {
+    final q = _dbQuery.trim().toLowerCase();
+    return [
+      for (final d in _sapDbs)
+        if (q.isEmpty || d.name.toLowerCase().contains(q) || d.detail.toLowerCase().contains(q)) d,
+    ];
+  }
+
+  Widget _databaseStep() {
+    final selected = _database.text.trim();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+          decoration: BoxDecoration(color: Pal.okBg, borderRadius: BorderRadius.circular(12)),
+          child: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Pal.ok),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('เชื่อมต่อ Server สำเร็จ', style: TextStyle(fontWeight: FontWeight.w800, color: Pal.ok)),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() => _erpStep = 1),
+                icon: const Icon(Icons.refresh_rounded, size: 16),
+                label: const Text('เปลี่ยน Server'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Panel(
+          pad: const EdgeInsets.fromLTRB(24, 22, 24, 22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: Pal.primarySoft, borderRadius: BorderRadius.circular(10)),
+                    child: const Icon(Icons.storage_outlined, color: Pal.primary),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('เลือกฐานข้อมูล SAP', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        SizedBox(height: 2),
+                        Text('เลือกฐานข้อมูลบริษัทที่ต้องการใช้งานในระบบ', style: TextStyle(color: Pal.muted, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              _box(
+                'ฐานข้อมูล *',
+                TextField(
+                  onChanged: (v) => setState(() => _dbQuery = v),
+                  decoration: const InputDecoration(
+                    hintText: 'ค้นหาชื่อฐานข้อมูล',
+                    prefixIcon: Icon(Icons.search, size: 18),
+                    isDense: true,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (_visibleDbs.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Text('ยังไม่พบรายชื่อฐานข้อมูลจากเซิร์ฟเวอร์', style: TextStyle(color: Pal.muted)),
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 280),
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final d in _visibleDbs)
+                        Material(
+                          color: selected == d.name ? Pal.primarySoft : Colors.white,
+                          child: InkWell(
+                            onTap: () => setState(() => _database.text = d.name),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                border: Border(bottom: BorderSide(color: Pal.line.withValues(alpha: 0.8))),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(d.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+                                        if (d.detail.isNotEmpty)
+                                          Text(d.detail, style: const TextStyle(color: Pal.muted, fontSize: 12)),
+                                      ],
+                                    ),
+                                  ),
+                                  if (selected == d.name) const Icon(Icons.check_rounded, color: Pal.primary, size: 20),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: selected.isEmpty ? null : _confirmConnect,
+                  child: const Text('ถัดไป'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _disconnectErp() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ยกเลิกการเชื่อมต่อ'),
+        content: const Text('การเชื่อมต่อ SAP นี้จะถูกลบออกจากระบบ'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ไม่')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Pal.err, foregroundColor: Colors.white),
+            child: const Text('ยกเลิกการเชื่อมต่อ'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    _host.clear();
+    _port.clear();
+    _database.clear();
+    _username.clear();
+    _password.clear();
+    _endpoint.clear();
+    _erpChecked = null;
+    _erpOk = null;
+    _sapDbs = [];
+    setState(() => _saving = true);
+    try {
+      await Api.saveSettings(_draft(), clearPassword: true);
+      if (!mounted) return;
+      setState(() {
+        _erpStep = 1;
+        _saving = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : e.toString()), backgroundColor: Pal.err),
+      );
+      setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _confirmConnect() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.info_outline_rounded, color: Pal.warn),
+            SizedBox(width: 8),
+            Expanded(child: Text('ยืนยันการเชื่อมต่อ')),
+          ],
+        ),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('คุณต้องการเชื่อมต่อฐานข้อมูลนี้?'),
+              const SizedBox(height: 16),
+              _confirmRow('Server / Host', _host.text.trim()),
+              _confirmRow('Port', _port.text.trim().isEmpty ? '14333' : _port.text.trim()),
+              _confirmRow('ชื่อผู้ใช้', _username.text.trim()),
+              _confirmRow('ฐานข้อมูล', _database.text.trim()),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ยืนยันการเชื่อมต่อ')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _ConnectingDialog(database: _database.text.trim(), onSave: () => _save(quiet: true)),
+    );
+    if (saved == true && mounted) setState(() => _erpStep = 3);
+  }
+
+  Widget _confirmRow(String k, String v) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          SizedBox(width: 120, child: Text(k, style: const TextStyle(color: Pal.muted, fontSize: 13))),
+          Expanded(child: Text(v.isEmpty ? '-' : v, style: const TextStyle(fontWeight: FontWeight.w700))),
+        ],
+      ),
+    );
+  }
+
+  Widget _successStep() {
+    final host = _host.text.trim();
+    final port = _port.text.trim().isEmpty ? '14333' : _port.text.trim();
+    final db = _database.text.trim();
+    final when = formatDt(_erpChecked, withSeconds: true);
+
+    Widget kv(IconData icon, String k, Widget v) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18, color: Pal.muted),
+            const SizedBox(width: 10),
+            SizedBox(width: 160, child: Text(k, style: const TextStyle(color: Pal.muted, fontSize: 13))),
+            Expanded(child: v),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('การเชื่อมต่อ SAP', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+                  SizedBox(height: 4),
+                  Text('จัดการการเชื่อมต่อ SAP Business One เพื่อใช้งานข้อมูลในระบบ', style: TextStyle(color: Pal.muted, fontSize: 14)),
+                ],
+              ),
+            ),
+            SizedBox(
+              height: 40,
+              child: ElevatedButton.icon(
+                onPressed: () => setState(() => _erpStep = 1),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('เพิ่มการเชื่อมต่อใหม่'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Panel(
+          pad: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+          child: LayoutBuilder(
+            builder: (context, c) {
+              final info = Column(
+                children: [
+                  kv(Icons.dns_outlined, 'Server / Host', Text(host.isEmpty ? '-' : host, style: const TextStyle(fontWeight: FontWeight.w700))),
+                  kv(Icons.settings_ethernet_rounded, 'Port', Text(port, style: const TextStyle(fontWeight: FontWeight.w700))),
+                  kv(Icons.storage_outlined, 'ฐานข้อมูล (Database)', Text(db.isEmpty ? '-' : db, style: const TextStyle(fontWeight: FontWeight.w700))),
+                  kv(Icons.schedule_rounded, 'เชื่อมต่อเมื่อ', Text(when, style: const TextStyle(fontWeight: FontWeight.w700))),
+                  kv(
+                    Icons.graphic_eq_rounded,
+                    'สถานะ',
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.circle, size: 8, color: Pal.ok),
+                            SizedBox(width: 6),
+                            Text('เชื่อมต่อสำเร็จ', style: TextStyle(fontWeight: FontWeight.w700, color: Pal.ok)),
+                          ],
+                        ),
+                        Text('ตรวจสอบล่าสุด $when', style: const TextStyle(color: Pal.muted, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+              final actions = Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    height: 42,
+                    child: OutlinedButton.icon(
+                      onPressed: () => setState(() => _erpStep = 1),
+                      icon: const Icon(Icons.settings_outlined, size: 18),
+                      label: const Text('แก้ไขการตั้งค่า Server'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 42,
+                    child: OutlinedButton.icon(
+                      onPressed: _saving ? null : _disconnectErp,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Pal.err,
+                        side: const BorderSide(color: Pal.err),
+                      ),
+                      icon: const Icon(Icons.link_off_rounded, size: 18),
+                      label: const Text('ยกเลิกการเชื่อมต่อ'),
+                    ),
+                  ),
+                ],
+              );
+              if (c.maxWidth < 800) {
+                return Column(children: [info, const SizedBox(height: 16), actions]);
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 3, child: info),
+                  const SizedBox(width: 24),
+                  SizedBox(width: 260, child: actions),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -658,23 +944,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         children: [
           _header('สิทธิ์การใช้งาน', 'จัดการผู้ใช้งานและสิทธิ์การเข้าถึงในระบบ', Icons.manage_accounts_outlined),
           const SizedBox(height: 18),
-          Row(
-            children: [
-              _miniTab('ผู้ใช้งาน', 0),
-              const SizedBox(width: 8),
-              _miniTab('กลุ่มสิทธิ์', 1),
-              const Spacer(),
-              if (_permTab == 0)
-                ElevatedButton.icon(
-                  onPressed: () => _openUserForm(),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('เพิ่มผู้ใช้งาน'),
-                ),
-            ],
+          Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton.icon(
+              onPressed: () => _openUserForm(),
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('เพิ่มผู้ใช้งาน'),
+            ),
           ),
           const SizedBox(height: 16),
-          if (_permTab == 0) ...[
-            FillTable(
+          FillTable(
               minWidth: 920,
               child: DataTable(
                 headingRowColor: tableHeadBg,
@@ -737,70 +1016,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Pages(page: _userPage, total: pages, onTap: (p) => setState(() => _userPage = p)),
               ],
             ),
-          ] else
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Text('กลุ่มสิทธิ์กำหนดที่ Backend — หน้านี้แสดงเฉพาะรายชื่อผู้ใช้งานจาก API', style: TextStyle(color: Pal.muted)),
-            ),
         ],
       ),
-    );
-  }
-
-  Widget _miniTab(String label, int i) {
-    final on = _permTab == i;
-    return InkWell(
-      onTap: () => setState(() => _permTab = i),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: on ? Pal.primarySoft : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: on ? Pal.primary : Pal.muted)),
-      ),
-    );
-  }
-
-  Widget _quad(Widget a, Widget b, Widget c, Widget d) {
-    return LayoutBuilder(
-      builder: (context, box) {
-        final items = [a, b, c, d];
-        if (box.maxWidth < 720) {
-          return Column(
-            children: [
-              for (var i = 0; i < items.length; i++) ...[
-                if (i > 0) const SizedBox(height: 12),
-                items[i],
-              ],
-            ],
-          );
-        }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var i = 0; i < items.length; i++) ...[
-              if (i > 0) const SizedBox(width: 12),
-              Expanded(child: items[i]),
-            ],
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _pair(Widget a, Widget b) {
-    return LayoutBuilder(
-      builder: (context, box) {
-        if (box.maxWidth < 720) {
-          return Column(children: [a, const SizedBox(height: 12), b]);
-        }
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [Expanded(child: a), const SizedBox(width: 16), Expanded(child: b)],
-        );
-      },
     );
   }
 
@@ -815,72 +1032,91 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _drop(String value, List<String> items, ValueChanged<String> onPick) {
-    final v = items.contains(value) ? value : items.first;
-    return DropdownButtonFormField<String>(
-      key: ValueKey(v),
-      initialValue: v,
-      items: [for (final i in items) DropdownMenuItem(value: i, child: Text(i))],
-      onChanged: (x) => setState(() => onPick(x ?? v)),
-      dropdownColor: Colors.white,
-      borderRadius: BorderRadius.circular(8),
-      decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
-    );
+}
+
+class _ConnectingDialog extends StatefulWidget {
+  const _ConnectingDialog({required this.onSave, required this.database});
+
+  final Future<bool> Function() onSave;
+  final String database;
+
+  @override
+  State<_ConnectingDialog> createState() => _ConnectingDialogState();
+}
+
+class _ConnectingDialogState extends State<_ConnectingDialog> {
+  int _done = 0;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _run());
   }
 
-  static const _docItems = [
-    ('none', 'ไม่สร้างเอกสาร'),
-    ('quotation', 'สร้างเป็น Sales Quotation'),
-    ('salesOrder', 'สร้างเป็น Sales Order'),
-    ('delivery', 'สร้างเป็น Delivery'),
-    ('return', 'สร้างเป็น Return'),
-    ('downPayment', 'สร้างเป็น A/R Down Payment Invoice'),
-    ('invoice', 'สร้างเป็น A/R Invoice'),
-    ('creditMemo', 'สร้างเป็น A/R Credit Memo'),
-  ];
-
-  Widget _docDrop(String value, ValueChanged<String> onPick) {
-    final v = _docItems.any((e) => e.$1 == value) ? value : 'none';
-    return DropdownButtonFormField<String>(
-      key: ValueKey(v),
-      initialValue: v,
-      items: [
-        for (final e in _docItems) DropdownMenuItem(value: e.$1, child: Text(e.$2, overflow: TextOverflow.ellipsis)),
-      ],
-      onChanged: (x) => setState(() => onPick(x ?? v)),
-      dropdownColor: Colors.white,
-      borderRadius: BorderRadius.circular(8),
-      decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
-    );
+  Future<void> _run() async {
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    setState(() => _done = 1);
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) return;
+    setState(() => _done = 2);
+    final ok = await widget.onSave();
+    if (!mounted) return;
+    if (!ok) {
+      setState(() => _error = 'บันทึกการตั้งค่าไม่สำเร็จ');
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      if (mounted) Navigator.pop(context, false);
+      return;
+    }
+    setState(() => _done = 3);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    if (mounted) Navigator.pop(context, true);
   }
 
-  Widget _codeDrop(String value, List<String> items, ValueChanged<String> onPick) {
-    final unique = [
-      ...{
-        for (final x in [if (value.isNotEmpty) value, ...items])
-          if (x.isNotEmpty) x,
-      },
-    ];
-    if (unique.isEmpty) {
-      return DropdownButtonFormField<String>(
-        initialValue: '',
-        items: const [DropdownMenuItem(value: '', child: Text('ยังไม่มีข้อมูล'))],
-        onChanged: null,
-        dropdownColor: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+  @override
+  Widget build(BuildContext context) {
+    Widget row(int i, String label) {
+      final done = _done > i;
+      final on = _done == i;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            if (done)
+              const Icon(Icons.check_circle_rounded, color: Pal.ok, size: 20)
+            else if (on)
+              const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+            else
+              const Icon(Icons.radio_button_unchecked, color: Pal.faint, size: 20),
+            const SizedBox(width: 10),
+            Expanded(child: Text(label)),
+            Text(done ? 'สำเร็จ' : (on ? 'กำลังทำ...' : ''), style: TextStyle(color: done ? Pal.ok : Pal.muted, fontSize: 13)),
+          ],
+        ),
       );
     }
-    final v = unique.contains(value) ? value : '';
-    return DropdownButtonFormField<String>(
-      key: ValueKey('$v-${unique.length}'),
-      initialValue: v.isEmpty ? null : v,
-      hint: const Text('เลือก'),
-      items: [for (final i in unique) DropdownMenuItem(value: i, child: Text(i))],
-      onChanged: (x) => setState(() => onPick(x ?? '')),
-      dropdownColor: Colors.white,
-      borderRadius: BorderRadius.circular(8),
-      decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+
+    return AlertDialog(
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text('กำลังเชื่อมต่อ...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            const Text('กรุณารอสักครู่', style: TextStyle(color: Pal.muted)),
+            const SizedBox(height: 20),
+            row(0, 'ตรวจสอบการเชื่อมต่อ Server'),
+            row(1, 'ตรวจสอบฐานข้อมูล ${widget.database}'),
+            row(2, 'บันทึกการตั้งค่า'),
+            if (_error != null) Text(_error!, style: const TextStyle(color: Pal.err, fontSize: 13)),
+          ],
+        ),
+      ),
     );
   }
 }

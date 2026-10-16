@@ -33,12 +33,16 @@ class StockTransfer {
     this.note = '',
     this.status = '',
     this.createdAt,
+    this.dueDate,
+    this.referenceNo = '',
+    this.requestedBy = '',
+    this.platform = '',
   });
 
   factory StockTransfer.fromApi(Map<String, dynamic> m) {
     final nested = pickList(m, ['Items', 'items', 'Lines', 'lines']);
     return StockTransfer(
-      id: pickStr(m, ['Id', 'id', 'TransferNo', 'transferNo', 'DocNum', 'docNum'], or: '-'),
+      id: pickStr(m, ['Id', 'id', 'TransferNo', 'transferNo', 'DocNum', 'docNum', 'DocEntry'], or: '-'),
       fromWarehouseId: pickStr(m, ['FromWarehouseId', 'fromWarehouseId', 'FromWhs', 'fromWhs', 'From', 'from'], or: '-'),
       toWarehouseId: pickStr(m, ['ToWarehouseId', 'toWarehouseId', 'ToWhs', 'toWhs', 'To', 'to'], or: '-'),
       fromWarehouseName: pickStr(m, ['FromWarehouseName', 'fromWarehouseName', 'FromWhsName'], or: ''),
@@ -47,9 +51,13 @@ class StockTransfer {
         for (final row in nested)
           if (row is Map) StockTransferLine.fromApi(Map<String, dynamic>.from(row)),
       ],
-      note: pickStr(m, ['Note', 'note', 'Remark', 'remark', 'Comments'], or: ''),
+      note: pickStr(m, ['Note', 'note', 'Remark', 'remark', 'Comments', 'Reason', 'reason'], or: ''),
       status: pickStr(m, ['Status', 'status'], or: ''),
-      createdAt: pickTime(m, ['CreatedAt', 'createdAt', 'TransferDate', 'transferDate', 'Date', 'date']),
+      createdAt: pickTime(m, ['CreatedAt', 'createdAt', 'TransferDate', 'transferDate', 'Date', 'date', 'DocDate', 'docDate']),
+      dueDate: pickTime(m, ['DueDate', 'dueDate', 'DocDueDate', 'docDueDate', 'TaxDate', 'taxDate']),
+      referenceNo: pickStr(m, ['ReferenceNo', 'referenceNo', 'NumAtCard', 'numAtCard', 'Ref', 'ref'], or: ''),
+      requestedBy: pickStr(m, ['RequestedBy', 'requestedBy', 'Requester', 'requester', 'OwnerName', 'ownerName', 'UserName', 'userName'], or: ''),
+      platform: pickStr(m, ['Platform', 'platform', 'Channel', 'channel'], or: ''),
     );
   }
 
@@ -62,6 +70,12 @@ class StockTransfer {
   final String note;
   final String status;
   final DateTime? createdAt;
+  final DateTime? dueDate;
+  final String referenceNo;
+  final String requestedBy;
+  final String platform;
+
+  DateTime? get scheduleDate => dueDate ?? createdAt;
 
   int get qtyTotal => items.fold(0, (a, i) => a + i.qty);
 

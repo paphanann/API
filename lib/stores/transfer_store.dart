@@ -30,6 +30,10 @@ class TransferStore extends PassStore {
     required String toWarehouseId,
     required List<StockTransferLine> items,
     String note = '',
+    String documentNo = '',
+    String requestedBy = '',
+    DateTime? dueDate,
+    String? platform,
   }) async {
     saving = true;
     error = null;
@@ -40,6 +44,10 @@ class TransferStore extends PassStore {
         toWarehouseId: toWarehouseId,
         items: items,
         note: note,
+        documentNo: documentNo,
+        requestedBy: requestedBy,
+        dueDate: dueDate,
+        platform: platform,
       );
       rows = [row, ...rows];
       return row;

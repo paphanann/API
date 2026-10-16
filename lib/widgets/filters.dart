@@ -4,12 +4,20 @@ import '../app/theme.dart';
 import '../core/format.dart';
 
 class DateRangeField extends StatelessWidget {
-  const DateRangeField({super.key, required this.from, required this.to, required this.onTap, this.width = 240});
+  const DateRangeField({
+    super.key,
+    required this.from,
+    required this.to,
+    required this.onTap,
+    this.width = 240,
+    this.label = 'ช่วงวันที่',
+  });
 
   final DateTime? from;
   final DateTime? to;
   final VoidCallback onTap;
   final double width;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +27,7 @@ class DateRangeField extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('ช่วงวันที่', style: TextStyle(fontSize: 12, color: Pal.muted, fontWeight: FontWeight.w500)),
+          Text(label, style: const TextStyle(fontSize: 12, color: Pal.muted, fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
           InkWell(
             onTap: onTap,
@@ -31,7 +39,11 @@ class DateRangeField extends StatelessWidget {
                 contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               ),
               child: Text(
-                has ? '${dayFmt.format(from!)} - ${dayFmt.format(to!)}' : 'ทั้งหมด',
+                !has
+                    ? 'ทั้งหมด'
+                    : dateOnly(from!) == dateOnly(to!)
+                        ? dayFmt.format(from!)
+                        : '${dayFmt.format(from!)} - ${dayFmt.format(to!)}',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 13,
@@ -72,7 +84,7 @@ class Drop<T> extends StatelessWidget {
           Text(label, style: const TextStyle(fontSize: 12, color: Pal.muted, fontWeight: FontWeight.w500)),
           const SizedBox(height: 6),
           DropdownButtonFormField<T>(
-            key: ValueKey(value),
+            key: ValueKey('$label-$value-${items.length}'),
             initialValue: items.any((e) => e.value == value) ? value : null,
             items: items,
             onChanged: onChanged,

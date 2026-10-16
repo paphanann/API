@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/api.dart';
+import '../screens/connection_detail.dart';
 import '../screens/connections.dart';
 import '../screens/home.dart';
 import '../screens/inventory.dart';
@@ -120,12 +121,25 @@ GoRouter buildRouter(Session session) {
           GoRoute(path: '/inventory', builder: (_, _) => const InventoryScreen()),
           GoRoute(
             path: '/stock-transfer',
-            builder: (_, _) => const StockTransferCreateScreen(),
+            builder: (_, _) => const StockTransferHistoryScreen(),
             routes: [
-              GoRoute(path: 'history', builder: (_, _) => const StockTransferHistoryScreen()),
+              GoRoute(path: 'create', builder: (_, _) => const StockTransferCreateScreen()),
+              GoRoute(path: 'history', redirect: (_, _) => '/stock-transfer'),
             ],
           ),
-          GoRoute(path: '/connections', builder: (_, _) => const ConnectScreen()),
+          GoRoute(
+            path: '/connections',
+            builder: (_, _) => const ConnectScreen(),
+            routes: [
+              GoRoute(
+                path: ':channel/:shopId',
+                builder: (_, state) => ConnectionDetailScreen(
+                  channel: state.pathParameters['channel']!,
+                  shopId: state.pathParameters['shopId']!,
+                ),
+              ),
+            ],
+          ),
           GoRoute(path: '/integration', builder: (_, _) => const ConnectScreen()),
           GoRoute(path: '/sync-log', builder: (_, _) => const SyncLogScreen()),
           GoRoute(

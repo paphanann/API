@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'ธันวาคม',
   ];
 
-  DateTime? _from;
+  DateTime? _from = DateTime(2026, 10, 1);
   DateTime? _to;
   int _month = 0;
   int _year = 0;
@@ -53,7 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
     _to = today;
-    _from = today.subtract(const Duration(days: 30));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       DashStore.instance.load();
@@ -114,7 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ..sort((a, b) => b.time.compareTo(a.time));
         final d = DashData.fromLive(orders: orders, shops: scopedShops, until: _to);
         final connected = scopedShops.where((s) => s.connected).length;
-        final shopTotal = _ch == 'all' ? Channel.values.length : 1;
+        final shopTotal = scopedShops.isEmpty ? 1 : scopedShops.length;
         final orderHint = _weekHint(d);
         SyncRow? lastOkLog;
         for (final l in logs) {

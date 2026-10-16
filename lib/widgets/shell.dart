@@ -12,6 +12,7 @@ const _menus = [
   ('/orders', 'คำสั่งซื้อ', Icons.receipt_long_rounded),
   ('/products', 'สินค้า', Icons.inventory_2_outlined),
   ('/inventory', 'คลังสินค้า', Icons.warehouse_outlined),
+  ('/stock-transfer', 'ขอโอนระหว่างคลัง', Icons.swap_horiz_rounded),
   ('/connections', 'การเชื่อมต่อ marketplace', Icons.link_rounded),
   ('/sync-log', 'Sync Error Log', Icons.sync_rounded),
   ('/settings', 'ตั้งค่า', Icons.settings_outlined),
@@ -120,9 +121,8 @@ class AppShell extends StatelessWidget {
     if (path == '/inventory') return '';
     if (path.startsWith('/products')) return 'สินค้า';
     if (path.startsWith('/inventory')) return 'คลังสินค้า';
-    if (path == '/stock-transfer/history') return '';
     if (path.startsWith('/stock-transfer')) return '';
-    if (path.startsWith('/connections') || path.startsWith('/integration')) return 'การเชื่อมต่อ marketplace';
+    if (path.startsWith('/connections') || path.startsWith('/integration')) return '';
     if (path.startsWith('/sync-log/')) return 'Error Detail';
     if (path.startsWith('/sync-log')) return 'Sync Error Log';
     if (path.startsWith('/settings')) return 'ตั้งค่า';
@@ -130,27 +130,19 @@ class AppShell extends StatelessWidget {
   }
 }
 
-class SideMenu extends StatefulWidget {
+class SideMenu extends StatelessWidget {
   const SideMenu({super.key, required this.session, this.onPick});
 
   final Session session;
   final VoidCallback? onPick;
 
-  @override
-  State<SideMenu> createState() => _SideMenuState();
-}
-
-class _SideMenuState extends State<SideMenu> {
-  bool _stockOpen = true;
-
   bool _on(String loc, String path) {
     if (path == '/') return loc == '/';
-    if (path == '/stock-transfer') return loc == '/stock-transfer';
     return loc == path || loc.startsWith('$path/') || (path == '/connections' && loc.startsWith('/integration'));
   }
 
   void _go(BuildContext context, String to) {
-    widget.onPick?.call();
+    onPick?.call();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (context.mounted) context.go(to);
     });
@@ -159,9 +151,6 @@ class _SideMenuState extends State<SideMenu> {
   @override
   Widget build(BuildContext context) {
     final loc = GoRouterState.of(context).uri.path;
-    final session = widget.session;
-    final stockOn = loc.startsWith('/stock-transfer');
-    final stockOpen = _stockOpen || stockOn;
 
     return Container(
       width: 248,
@@ -185,7 +174,7 @@ class _SideMenuState extends State<SideMenu> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                for (final m in _menus) ...[
+                for (final m in _menus)
                   if (!session.isUserRole || !_adminMenus.contains(m.$1))
                     _tile(
                       icon: m.$3,
@@ -193,36 +182,6 @@ class _SideMenuState extends State<SideMenu> {
                       selected: _on(loc, m.$1),
                       onTap: () => _go(context, m.$1),
                     ),
-                  if (m.$1 == '/inventory') ...[
-                    _tile(
-                      icon: Icons.swap_horiz_rounded,
-                      label: 'โอนสต็อก',
-                      selected: false,
-                      trailing: Icon(
-                        stockOpen ? Icons.expand_less_rounded : Icons.keyboard_arrow_down_rounded,
-                        color: Colors.white54,
-                        size: 20,
-                      ),
-                      onTap: () => setState(() => _stockOpen = !stockOpen),
-                    ),
-                    if (stockOpen) ...[
-                      _tile(
-                        icon: Icons.note_add_outlined,
-                        label: 'สร้างรายการโอน',
-                        selected: loc == '/stock-transfer',
-                        indent: true,
-                        onTap: () => _go(context, '/stock-transfer'),
-                      ),
-                      _tile(
-                        icon: Icons.history_edu_outlined,
-                        label: 'ประวัติการโอนสต็อก',
-                        selected: loc == '/stock-transfer/history',
-                        indent: true,
-                        onTap: () => _go(context, '/stock-transfer/history'),
-                      ),
-                    ],
-                  ],
-                ],
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                   child: Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
@@ -233,7 +192,7 @@ class _SideMenuState extends State<SideMenu> {
                   selected: false,
                   danger: true,
                   onTap: () {
-                    widget.onPick?.call();
+                    onPick?.call();
                     session.logout();
                   },
                 ),

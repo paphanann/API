@@ -19,6 +19,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   static const _pageSize = 10;
 
   String _ch = 'all';
+  String _shop = 'all';
   String _st = 'active';
   String _issue = 'all';
   String _q = '';
@@ -34,7 +35,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
     _to = today;
     _from = today.subtract(const Duration(days: 30));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ProductStore.instance.load();
+      if (mounted) {
+        ProductStore.instance.load();
+        if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
+      }
     });
   }
 
@@ -100,6 +104,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
     final q = _q.toLowerCase();
     return ProductStore.instance.products.where((p) {
       if (_ch != 'all' && p.channel.name != _ch) return false;
+      if (_shop != 'all' && _shop != '${p.channel.name}|${p.shopId}') return false;
       if (_st != 'all' && p.status.name != _st) return false;
       if (_issue == 'sap' && p.problem.isEmpty) return false;
       if (_issue == 'none' && p.problem.isNotEmpty) return false;
@@ -117,7 +122,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([ProductStore.instance, MarketplaceSyncStore.instance]),
+      listenable: Listenable.merge([ProductStore.instance, ShopStore.instance, MarketplaceSyncStore.instance]),
       builder: (context, _) {
         final store = ProductStore.instance;
         final syncStore = MarketplaceSyncStore.instance;
@@ -158,11 +163,30 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           width: 160,
                           onChanged: (v) => setState(() {
                             _ch = v ?? 'all';
+                            _shop = 'all';
                             _page = 1;
                           }),
                           items: [
                             const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
                             ...Channel.values.map((c) => DropdownMenuItem(value: c.name, child: Text(c.label))),
+                          ],
+                        ),
+                        Drop<String>(
+                          label: 'ร้านค้า',
+                          value: _shop,
+                          width: 200,
+                          onChanged: (v) => setState(() {
+                            _shop = v ?? 'all';
+                            _page = 1;
+                          }),
+                          items: [
+                            const DropdownMenuItem(value: 'all', child: Text('ทุกร้าน')),
+                            for (final s in ShopStore.instance.realShops)
+                              if (s.connected && s.apiShopId.isNotEmpty && (_ch == 'all' || s.channel.name == _ch))
+                                DropdownMenuItem(
+                                  value: '${s.channel.name}|${s.apiShopId}',
+                                  child: Text(s.displayName),
+                                ),
                           ],
                         ),
                         Drop<String>(
@@ -252,7 +276,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         return _TableViewport(
                           width: box.maxWidth,
                           child: FillTable(
-                            minWidth: 1780,
+                            minWidth: 1940,
                             child: Column(
                               children: [
                                 _header(),
@@ -298,6 +322,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
         chevron: const SizedBox.shrink(),
         product: const Text('สินค้า', style: tableHead),
         platform: const Text('แพลตฟอร์ม', style: tableHead),
+        shop: const Text('ชื่อร้าน', style: tableHead),
         price: const Text('ราคาเริ่มต้น', style: tableHead),
         stock: const Text('Stock รวม', style: tableHead),
         variants: const Text('จำนวน Variant', style: tableHead),
@@ -316,6 +341,7 @@ class _ProdCols extends StatelessWidget {
     required this.product,
     required this.platform,
     required this.price,
+    required this.shop,
     required this.stock,
     required this.variants,
     required this.status,
@@ -328,6 +354,7 @@ class _ProdCols extends StatelessWidget {
   final Widget product;
   final Widget platform;
   final Widget price;
+  final Widget shop;
   final Widget stock;
   final Widget variants;
   final Widget status;
@@ -351,6 +378,7 @@ class _ProdCols extends StatelessWidget {
         Expanded(child: product),
         cell(140, platform),
         cell(120, price),
+        cell(160, shop),
         cell(100, stock),
         cell(130, variants),
         cell(120, status),
@@ -422,6 +450,11 @@ class _ProductBlockState extends State<_ProductBlock> {
               ),
               platform: ChannelLabel(channel: p.channel),
               price: Text(baht.format(p.priceFrom), style: const TextStyle(fontWeight: FontWeight.w600)),
+              shop: Text(
+                ShopStore.instance.nameFor(channel: p.channel, shopId: p.shopId),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               stock: Text('${p.stockTotal}'),
               variants: Text(p.hasVariants ? '${p.variantCount}' : '-'),
               status: productPill(p.status),

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../app/theme.dart';
 import '../core/format.dart';
 import '../models/models.dart';
+import '../stores/stores.dart';
 import '../widgets/ui.dart';
 
 class StockTransferHistoryScreen extends StatefulWidget {
@@ -27,6 +29,9 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     final today = dateOnly(DateTime.now());
     _toDate = today;
     _fromDate = today.subtract(const Duration(days: 30));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) TransferStore.instance.load();
+    });
   }
 
   @override
@@ -88,18 +93,75 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
 
   static const _btnH = 36.0;
 
+  List<StockTransfer> get _rows {
+    final q = _search.text.trim().toLowerCase();
+    final list = [
+      for (final t in TransferStore.instance.rows)
+        if ((_platform == 'all' || t.platform == _platform || ChannelX.fromApi(t.platform)?.name == _platform) &&
+            (_from.isEmpty || t.fromWarehouseId == _from) &&
+            (_to.isEmpty || t.toWarehouseId == _to) &&
+            (_st == 'all' || t.status.toLowerCase().contains(_st)) &&
+            (_fromDate == null ||
+                _toDate == null ||
+                t.scheduleDate == null ||
+                (!dateOnly(t.scheduleDate!).isBefore(_fromDate!) && !dateOnly(t.scheduleDate!).isAfter(_toDate!))) &&
+            (q.isEmpty ||
+                t.id.toLowerCase().contains(q) ||
+                t.referenceNo.toLowerCase().contains(q) ||
+                t.requestedBy.toLowerCase().contains(q)))
+          t,
+    ];
+    list.sort((a, b) {
+      final da = a.scheduleDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final db = b.scheduleDate ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return db.compareTo(da);
+    });
+    return list;
+  }
+
+  String _platformLabel(String raw) {
+    if (raw.isEmpty || raw == '-') return '-';
+    return ChannelX.fromApi(raw)?.label ?? raw;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
+    return ListenableBuilder(
+      listenable: TransferStore.instance,
+      builder: (context, _) {
+        final rows = _rows;
+        return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('ประวัติการโอนสต็อก', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 4),
-          const Text(
-            'ตรวจสอบประวัติการโอนสินค้าจากคลัง Main ไปยังคลัง Online ของแต่ละ Platform',
-            style: TextStyle(color: Pal.muted, fontSize: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ขอโอนระหว่างคลัง', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+                    SizedBox(height: 4),
+                    Text(
+                      'ตรวจสอบประวัติการโอนสินค้าจากคลัง Main ไปยังคลัง Online ของแต่ละ Platform',
+                      style: TextStyle(color: Pal.muted, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton.icon(
+                onPressed: () => context.go('/stock-transfer/create'),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('สร้างรายการโอน'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           Panel(
@@ -123,20 +185,22 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
                 Drop<String>(
                   label: 'คลังต้นทาง',
                   value: _from,
-                  width: 140,
+                  width: 180,
                   onChanged: (v) => setState(() => _from = v ?? ''),
-                  items: const [
-                    DropdownMenuItem(value: '', child: Text('ทั้งหมด')),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('ทั้งหมด')),
+                    ...sapWarehouses.map((w) => DropdownMenuItem(value: w.code, child: Text(w.label))),
                   ],
                 ),
                 const SizedBox(width: 8),
                 Drop<String>(
                   label: 'คลังปลายทาง',
                   value: _to,
-                  width: 140,
+                  width: 180,
                   onChanged: (v) => setState(() => _to = v ?? ''),
-                  items: const [
-                    DropdownMenuItem(value: '', child: Text('ทั้งหมด')),
+                  items: [
+                    const DropdownMenuItem(value: '', child: Text('ทั้งหมด')),
+                    ...sapWarehouses.map((w) => DropdownMenuItem(value: w.code, child: Text(w.label))),
                   ],
                 ),
                 const SizedBox(width: 8),
@@ -157,6 +221,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
                 Expanded(
                   child: TextField(
                     controller: _search,
+                    onSubmitted: (_) => setState(() {}),
                     style: const TextStyle(fontSize: 13),
                     decoration: const InputDecoration(
                       hintText: 'ค้นหาเลขที่เอกสาร / Reference No.',
@@ -171,7 +236,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
                 SizedBox(
                   height: _btnH,
                   child: ElevatedButton.icon(
-                    onPressed: () {},
+                    onPressed: () => setState(() {}),
                     style: _searchBtn,
                     icon: const Icon(Icons.search, size: 16),
                     label: const Text('ค้นหา', style: TextStyle(fontSize: 13)),
@@ -265,8 +330,9 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
                     headingRowColor: tableHeadBg,
                     headingTextStyle: tableHead,
                     dataRowMinHeight: 52,
+                    dataRowMaxHeight: 64,
                     columns: const [
-                      DataColumn(label: Text('วันที่ / เวลา')),
+                      DataColumn(label: Text('วันที่กำหนด')),
                       DataColumn(label: Text('เลขที่เอกสาร')),
                       DataColumn(label: Text('Reference No.')),
                       DataColumn(label: Text('จากคลัง')),
@@ -276,20 +342,39 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
                       DataColumn(label: Text('จำนวนรวมโอน')),
                       DataColumn(label: Text('SAP DocNumber')),
                       DataColumn(label: Text('สถานะ')),
-                      DataColumn(label: Text('ผู้ดำเนินการ')),
+                      DataColumn(label: Text('ผู้ขอโอน')),
                       DataColumn(label: Text('Action')),
                     ],
-                    rows: const [],
+                    rows: [
+                      for (final t in rows)
+                        DataRow(
+                          cells: [
+                            DataCell(Text(t.scheduleDate == null ? '-' : dtFmt.format(t.scheduleDate!))),
+                            DataCell(Text(t.id)),
+                            DataCell(Text(t.referenceNo.isEmpty || t.referenceNo == '-' ? '-' : t.referenceNo)),
+                            DataCell(Text(warehouseLabel(t.fromLabel))),
+                            DataCell(Text(warehouseLabel(t.toLabel))),
+                            DataCell(Text(_platformLabel(t.platform))),
+                            DataCell(Text('${t.items.length}')),
+                            DataCell(Text('${t.qtyTotal}')),
+                            DataCell(Text(t.id)),
+                            DataCell(transferPill(t.status)),
+                            DataCell(Text(t.requestedBy.isEmpty || t.requestedBy == '-' ? '-' : t.requestedBy)),
+                            DataCell(const Text('ดูรายละเอียด', style: TextStyle(color: Pal.primary, fontWeight: FontWeight.w600))),
+                          ],
+                        ),
+                    ],
                   ),
                 ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 28),
-                  child: Center(child: Text('ยังไม่มีข้อมูลประวัติการโอน', style: TextStyle(color: Pal.muted))),
-                ),
+                if (rows.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 28),
+                    child: Center(child: Text('ยังไม่มีข้อมูลประวัติการโอน', style: TextStyle(color: Pal.muted))),
+                  ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Text('แสดง 0 รายการ', style: TextStyle(color: Pal.muted, fontSize: 13)),
+                    Text(rows.isEmpty ? 'แสดง 0 รายการ' : 'แสดง ${rows.length} รายการ', style: const TextStyle(color: Pal.muted, fontSize: 13)),
                     const Spacer(),
                     Pages(page: 1, total: 1, onTap: (_) {}),
                   ],
@@ -299,6 +384,8 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
           ),
         ],
       ),
+    );
+      },
     );
   }
 }

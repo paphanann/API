@@ -33,6 +33,9 @@ class Order {
     required this.shipping,
     this.shippingStatus = '',
     required this.lines,
+    this.shopId = '',
+    this.shopName = '',
+    this.companyId = '',
     this.itemAmount,
     this.discountAmount,
     this.shippingAmount,
@@ -42,8 +45,11 @@ class Order {
     this.lastSyncedAt,
   });
 
-  factory Order.fromApi(Map<String, dynamic> m) {
-    final channel = ChannelX.fromApi(pickStr(m, ['Platform', 'platform', 'Channel', 'channel'], or: '')) ?? Channel.shopee;
+  factory Order.fromApi(Map<String, dynamic> m, {Channel? fallbackChannel}) {
+    final bags = _shopBags(m);
+    final channel = ChannelX.fromApi(_firstPlain(bags, ['Platform', 'platform', 'Channel', 'channel', 'Marketplace', 'marketplace', 'Source', 'source'])) ??
+        fallbackChannel ??
+        Channel.shopee;
     final lines = <OrderLine>[];
     for (final row in pickList(m, ['Lines', 'lines', 'Items', 'items', 'OrderItems'])) {
       if (row is! Map) continue;
@@ -97,6 +103,9 @@ class Order {
         'status',
       ], or: '')),
       lines: lines,
+      shopId: _firstPlain(bags, ['ShopId', 'shopId', 'shop_id', 'SellerId', 'sellerId', 'seller_id', 'SellerID', 'OpenId', 'openId']),
+      shopName: _firstPlain(bags, ['ShopName', 'shopName', 'shop_name', 'SellerName', 'sellerName', 'seller_name', 'StoreName', 'storeName']),
+      companyId: _firstPlain(bags, ['CompanyId', 'companyId', 'company_id']),
       itemAmount: _optAmount(m, [
         'ItemAmount',
         'itemAmount',
@@ -169,6 +178,9 @@ class Order {
   final String shipping;
   final String shippingStatus;
   final List<OrderLine> lines;
+  final String shopId;
+  final String shopName;
+  final String companyId;
   final double? itemAmount;
   final double? discountAmount;
   final double? shippingAmount;
@@ -387,4 +399,13 @@ OrderStatus _orderStatus(String raw) {
     return OrderStatus.success;
   }
   return OrderStatus.pending;
+}
+
+List<Map<String, dynamic>> _shopBags(Map<String, dynamic> m) {
+  final bags = <Map<String, dynamic>>[m];
+  for (final key in ['Shop', 'shop', 'Seller', 'seller', 'Store', 'store', 'ShopInfo', 'shopInfo']) {
+    final v = pick(m, [key]);
+    if (v is Map) bags.add(Map<String, dynamic>.from(v));
+  }
+  return bags;
 }
