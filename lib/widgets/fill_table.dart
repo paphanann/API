@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -19,13 +21,16 @@ class _FillTableState extends State<FillTable> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() {});
-    });
+    _scroll.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
     _scroll.dispose();
     super.dispose();
   }
@@ -35,7 +40,10 @@ class _FillTableState extends State<FillTable> {
     return LayoutBuilder(
       builder: (context, box) {
         final parentW = widget.viewportWidth ?? (box.maxWidth.isFinite ? box.maxWidth : 0.0);
-        final minW = parentW > widget.minWidth ? parentW : widget.minWidth;
+        if (parentW <= 0) {
+          return const IgnorePointer(child: SizedBox(width: 1, height: 1));
+        }
+        final minW = math.max(widget.minWidth, parentW);
         return ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(
             scrollbars: false,
@@ -57,7 +65,7 @@ class _FillTableState extends State<FillTable> {
               ),
               Padding(
                 padding: const EdgeInsets.only(top: 10, bottom: 4),
-                child: _HScrollBar(controller: _scroll, viewWidth: parentW <= 0 ? minW : parentW, contentWidth: minW),
+                child: _HScrollBar(controller: _scroll, viewWidth: parentW, contentWidth: minW),
               ),
             ],
           ),
@@ -80,70 +88,71 @@ class _HScrollBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, _) {
-        if (!controller.hasClients) {
-          return const SizedBox(height: 16);
-        }
-        final pos = controller.position;
-        final fallback = (contentWidth - viewWidth).clamp(0.0, double.infinity);
+    if (viewWidth <= 0 || contentWidth <= 0) {
+      return const IgnorePointer(child: SizedBox(height: 16));
+    }
+    if (!controller.hasClients) {
+      return const IgnorePointer(child: SizedBox(height: 16));
+    }
+    final pos = controller.position;
+        final fallback = (contentWidth - viewWidth).clamp(0.0, double.infinity).toDouble();
         final max = pos.hasContentDimensions ? pos.maxScrollExtent : fallback;
-        final offset = pos.hasPixels && max > 0 ? pos.pixels.clamp(0.0, max) : 0.0;
+        final offset = pos.hasPixels && max > 0 ? pos.pixels.clamp(0.0, max).toDouble() : 0.0;
         return LayoutBuilder(
           builder: (context, bar) {
             final trackW = bar.maxWidth.isFinite ? bar.maxWidth : 0.0;
-            if (trackW <= 0) return const SizedBox(height: 16);
-            final ratio = contentWidth <= 0 ? 1.0 : (viewWidth / contentWidth).clamp(0.0, 1.0);
-            final thumbW = (trackW * ratio).clamp(48.0, trackW);
-            final travel = (trackW - thumbW).clamp(0.0, double.infinity);
+            if (trackW <= 0) {
+              return const IgnorePointer(child: SizedBox(height: 16));
+            }
+            final ratio = (viewWidth / contentWidth).clamp(0.0, 1.0).toDouble();
+            final rawThumb = trackW * ratio;
+            final thumbW = rawThumb.clamp(math.min(24.0, trackW), trackW).toDouble();
+            final travel = (trackW - thumbW).clamp(0.0, double.infinity).toDouble();
             final thumbL = max == 0 ? 0.0 : travel * (offset / max);
 
             void jumpAt(double localX) {
-              final x = (localX - thumbW / 2).clamp(0.0, travel);
+              final x = (localX - thumbW / 2).clamp(0.0, travel).toDouble();
               final next = travel == 0 ? 0.0 : max * (x / travel);
               if (controller.hasClients) controller.jumpTo(next);
             }
 
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (e) => jumpAt(e.localPosition.dx),
-              onHorizontalDragUpdate: (e) => jumpAt(e.localPosition.dx),
-              child: SizedBox(
-                height: 16,
-                width: trackW.isFinite ? trackW : 0,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 4,
-                      height: 8,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE5E7EB),
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                      ),
+        return GestureDetector(
+          behavior: HitTestBehavior.deferToChild,
+          onTapDown: (e) => jumpAt(e.localPosition.dx),
+          onHorizontalDragUpdate: (e) => jumpAt(e.localPosition.dx),
+          child: SizedBox(
+            height: 16,
+            width: trackW,
+            child: Stack(
+              clipBehavior: Clip.hardEdge,
+              children: [
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 4,
+                  height: 8,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(99),
                     ),
-                    Positioned(
-                      left: thumbL.isFinite ? thumbL : 0,
-                      top: 3,
-                      width: thumbW.isFinite ? thumbW : 48,
-                      height: 10,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF94A3B8),
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            );
-          },
+                Positioned(
+                  left: thumbL.isFinite ? thumbL : 0,
+                  top: 3,
+                  width: thumbW.isFinite ? thumbW : 24,
+                  height: 10,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF94A3B8),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );

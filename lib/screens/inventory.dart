@@ -32,11 +32,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
     final today = dateOnly(DateTime.now());
     _to = today;
     _from = today.subtract(const Duration(days: 30));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        InventoryStore.instance.load();
-        if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      InventoryStore.instance.load();
+      if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
+      try {
+        final opts = await Api.getErpOptions();
+        if (!mounted) return;
+        if (opts.warehouseNames.isNotEmpty) setState(() => setLiveWarehouses(opts.warehouseNames));
+      } catch (_) {}
     });
   }
 
@@ -132,7 +136,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
     return [
       ...{
         '',
-        for (final w in sapWarehouses) w.code,
+        for (final w in liveWarehouses) w.code,
         if (r.sapWhsCode.isNotEmpty && r.sapWhsCode != '-') r.sapWhsCode,
       },
     ];
@@ -265,15 +269,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     ],
                     const SizedBox(height: 16),
                     FillTable(
-                      minWidth: 1380,
+                      minWidth: 1420,
                       child: DataTable(
                         headingRowColor: tableHeadBg,
                         headingTextStyle: tableHead,
                         dataRowMinHeight: 56,
                         dataRowMaxHeight: 72,
-                        columnSpacing: 20,
+                        columnSpacing: 16,
                         headingRowHeight: 48,
+                        horizontalMargin: 8,
                         columns: [
+                          const DataColumn(label: SizedBox(width: 28, child: Text('#', maxLines: 1, softWrap: false))),
                           const DataColumn(label: Text('แพลตฟอร์ม')),
                           const DataColumn(label: Text('ชื่อร้าน')),
                           const DataColumn(label: Text('คลัง Marketplace')),
@@ -296,20 +302,21 @@ class _InventoryScreenState extends State<InventoryScreen> {
                           const DataColumn(label: Text('อัปเดตล่าสุด')),
                         ],
                         rows: [
-                          for (final r in rows)
+                          for (var i = 0; i < rows.length; i++)
                             DataRow(
                               cells: [
+                                DataCell(Text('${start + i + 1}', style: const TextStyle(color: Pal.muted))),
                                 DataCell(
-                                  r.channel == null ? const Text('-') : ChannelLabel(channel: r.channel!, maxLabelWidth: 90),
+                                  rows[i].channel == null ? const Text('-') : ChannelLabel(channel: rows[i].channel!, maxLabelWidth: 90),
                                 ),
-                                DataCell(_cell(140, Text(_shopLabel(r), maxLines: 1, overflow: TextOverflow.ellipsis))),
-                                DataCell(_cell(130, Text(r.warehouseName.isEmpty || r.warehouseName == '-' ? 'MARKETPLACE' : r.warehouseName))),
-                                DataCell(_cell(110, Text(r.warehouseId.isEmpty ? '-' : r.warehouseId))),
-                                DataCell(_sapDrop(r)),
-                                DataCell(_cell(120, Text(_sapName(r.sapWhsCode)))),
-                                DataCell(_cell(70, Text('${r.stock}'))),
-                                DataCell(_status(r)),
-                                DataCell(_cell(130, Text(r.updatedAt == null ? '-' : dtFmt.format(r.updatedAt!)))),
+                                DataCell(_cell(140, Text(_shopLabel(rows[i]), maxLines: 1, overflow: TextOverflow.ellipsis))),
+                                DataCell(_cell(130, Text(rows[i].warehouseName.isEmpty || rows[i].warehouseName == '-' ? 'MARKETPLACE' : rows[i].warehouseName))),
+                                DataCell(_cell(110, Text(rows[i].warehouseId.isEmpty ? '-' : rows[i].warehouseId))),
+                                DataCell(_sapDrop(rows[i])),
+                                DataCell(_cell(120, Text(_sapName(rows[i].sapWhsCode)))),
+                                DataCell(_cell(70, Text('${rows[i].stock}'))),
+                                DataCell(_status(rows[i])),
+                                DataCell(_cell(130, Text(rows[i].updatedAt == null ? '-' : dtFmt.format(rows[i].updatedAt!)))),
                               ],
                             ),
                         ],

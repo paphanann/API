@@ -17,7 +17,7 @@ class OrdersScreen extends StatefulWidget {
 }
 
 class _OrdersScreenState extends State<OrdersScreen> {
-  static const _pageSize = 10;
+  static const _pageSize = 20;
 
   String _ch = 'all';
   String _shop = 'all';
@@ -34,11 +34,15 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final now = DateTime.now();
     _to = DateTime(now.year, now.month, now.day);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        OrderStore.instance.load();
-        if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
-        if (InventoryStore.instance.rows.isEmpty) InventoryStore.instance.load();
+      if (!mounted) return;
+      final orders = OrderStore.instance;
+      if (orders.orders.isEmpty) {
+        orders.load();
+      } else {
+        orders.load(silent: true);
       }
+      if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
+      if (InventoryStore.instance.rows.isEmpty) InventoryStore.instance.load();
     });
   }
 
@@ -200,7 +204,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
         final toN = start + rows.length;
 
         return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -212,7 +216,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ),
               const SizedBox(height: 20),
               Panel(
-                pad: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                pad: const EdgeInsets.fromLTRB(12, 12, 12, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -324,13 +328,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ],
                     const SizedBox(height: 16),
                     FillTable(
-                      minWidth: 1780,
+                      minWidth: 1680,
                       child: DataTable(
                         headingRowColor: tableHeadBg,
                         headingTextStyle: tableHead,
-                        dataRowMinHeight: 52,
-                        dataRowMaxHeight: 64,
+                        headingRowHeight: 40,
+                        horizontalMargin: 8,
+                        columnSpacing: 16,
+                        dataRowMinHeight: 40,
+                        dataRowMaxHeight: 48,
                         columns: const [
+                          DataColumn(label: Text('#')),
                           DataColumn(label: Text('Order No.')),
                           DataColumn(label: Text('Platform')),
                           DataColumn(label: Text('ชื่อร้าน')),
@@ -344,32 +352,39 @@ class _OrdersScreenState extends State<OrdersScreen> {
                           DataColumn(label: Text('Action')),
                         ],
                         rows: [
-                          for (final o in rows)
+                          for (var i = 0; i < rows.length; i++)
                             DataRow(
                               cells: [
-                                DataCell(Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600))),
-                                DataCell(ChannelLabel(channel: o.channel)),
+                                DataCell(Text('${start + i + 1}', style: const TextStyle(color: Pal.muted))),
+                                DataCell(Text(rows[i].id, style: const TextStyle(fontWeight: FontWeight.w600))),
+                                DataCell(ChannelLabel(channel: rows[i].channel)),
                                 DataCell(Text(
-                                  ShopStore.instance.nameFor(channel: o.channel, shopId: o.shopId, shopName: o.shopName),
+                                  ShopStore.instance.nameFor(channel: rows[i].channel, shopId: rows[i].shopId, shopName: rows[i].shopName),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 )),
-                                DataCell(Text(_sapWhsFor(o))),
-                                DataCell(Text(dtFmt.format(o.createdAt))),
-                                DataCell(Text(baht.format(o.total), style: const TextStyle(fontWeight: FontWeight.w600))),
-                                DataCell(orderPill(o.status)),
-                                DataCell(orderSyncPill(o.syncStatus.isEmpty
-                                    ? (o.sapDocNum != null && o.sapDocNum!.isNotEmpty ? 'sap_ok' : 'saved')
-                                    : o.syncStatus)),
+                                DataCell(Text(_sapWhsFor(rows[i]))),
+                                DataCell(Text(dtFmt.format(rows[i].createdAt))),
+                                DataCell(Text(baht.format(rows[i].total), style: const TextStyle(fontWeight: FontWeight.w600))),
+                                DataCell(orderPill(rows[i].status)),
+                                DataCell(orderSyncPill(
+                                  rows[i].sapDocNum != null && rows[i].sapDocNum!.isNotEmpty
+                                      ? 'sap_ok'
+                                      : rows[i].syncStatus,
+                                )),
                                 DataCell(Text(
-                                  o.lastSyncedAt == null ? '-' : dtFmt.format(o.lastSyncedAt!),
+                                  rows[i].lastSyncedAt == null ? '-' : dtFmt.format(rows[i].lastSyncedAt!),
                                   maxLines: 1,
                                   softWrap: false,
                                 )),
-                                DataCell(Text(o.sapDocNum ?? '-')),
+                                DataCell(Text(rows[i].sapDocNum ?? '-')),
                                 DataCell(
                                   TextButton(
-                                    onPressed: () => context.go('/orders/${Uri.encodeComponent(o.id)}'),
+                                    onPressed: () => context.go('/orders/${Uri.encodeComponent(rows[i].id)}'),
+                                    style: TextButton.styleFrom(
+                                      visualDensity: VisualDensity.compact,
+                                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                                    ),
                                     child: const Text('ดูรายละเอียด'),
                                   ),
                                 ),

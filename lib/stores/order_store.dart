@@ -10,6 +10,7 @@ class OrderStore extends PassStore {
   List<Order> orders = [];
   bool loading = false;
   String? error;
+  Future<void>? _inflight;
 
   Order? byId(String id) {
     for (final o in orders) {
@@ -19,6 +20,12 @@ class OrderStore extends PassStore {
   }
 
   Future<Order?> loadOne(String id) async {
+    final pending = _inflight;
+    if (pending != null) {
+      try {
+        await pending;
+      } catch (_) {}
+    }
     try {
       final one = await Api.getOrder(id);
       if (one == null) return byId(id);
@@ -35,15 +42,34 @@ class OrderStore extends PassStore {
     }
   }
 
-  Future<void> load({String? platform, String? shopId}) async {
-    loading = true;
-    error = null;
-    notifyListeners();
+  Future<void> load({String? platform, String? shopId, bool silent = false}) async {
+    if (_inflight != null) return _inflight!;
+    _inflight = _load(platform: platform, shopId: shopId, silent: silent);
     try {
-      orders = await Api.getOrders(platform: platform, shopId: shopId);
+      await _inflight;
+    } finally {
+      _inflight = null;
+    }
+  }
+
+  Future<void> _load({String? platform, String? shopId, bool silent = false}) async {
+    final showBusy = !silent || orders.isEmpty;
+    if (showBusy) {
+      loading = true;
+      error = null;
+      notifyListeners();
+    }
+    try {
+      final fresh = await Api.getOrders(platform: platform, shopId: shopId);
+      final detailed = {for (final order in orders) if (order.lines.isNotEmpty) order.id: order};
+      orders = [
+        for (final order in fresh)
+          if (order.lines.isEmpty && detailed.containsKey(order.id)) detailed[order.id]! else order,
+      ];
+      error = null;
     } catch (e) {
       error = e is ApiException ? e.message : e.toString();
-      orders = [];
+      if (orders.isEmpty) orders = [];
     }
     loading = false;
     notifyListeners();

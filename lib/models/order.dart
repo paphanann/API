@@ -45,11 +45,45 @@ class Order {
     this.lastSyncedAt,
   });
 
-  factory Order.fromApi(Map<String, dynamic> m, {Channel? fallbackChannel}) {
+  factory Order.fromApi(Map<String, dynamic> m, {Channel? fallbackChannel, bool listOnly = false}) {
     final bags = _shopBags(m);
     final channel = ChannelX.fromApi(_firstPlain(bags, ['Platform', 'platform', 'Channel', 'channel', 'Marketplace', 'marketplace', 'Source', 'source'])) ??
         fallbackChannel ??
         Channel.shopee;
+    if (listOnly) {
+      return Order(
+        id: pickStr(m, ['MarketplaceOrderId', 'marketplaceOrderId', 'OrderNo', 'orderNo', 'order_sn', 'OrderId', 'order_id', 'Id', 'id'], or: '-'),
+        channel: channel,
+        customer: '-',
+        phone: '-',
+        address: '-',
+        createdAt: pickTime(m, ['OrderDate', 'orderDate', 'CreatedAt', 'createdAt', 'CreateTime', 'order_create_time', 'Date']) ?? DateTime.now(),
+        status: _orderStatus(pickStr(m, ['OrderStatus', 'orderStatus', 'Status', 'status'], or: '')),
+        payment: '',
+        shipping: '',
+        lines: const [],
+        shopId: _firstPlain(bags, ['ShopId', 'shopId', 'shop_id', 'SellerId', 'sellerId', 'seller_id', 'SellerID', 'OpenId', 'openId']),
+        shopName: _firstPlain(bags, ['ShopName', 'shopName', 'shop_name', 'SellerName', 'sellerName', 'seller_name', 'StoreName', 'storeName']),
+        companyId: _firstPlain(bags, ['CompanyId', 'companyId', 'company_id']),
+        listedTotal: _optAmount(m, [
+          'TotalAmount',
+          'totalAmount',
+          'total_amount',
+          'EscrowAmount',
+          'BuyerTotalAmount',
+          'buyer_total_amount',
+          'Total',
+          'total',
+          'Amount',
+        ]),
+        sapDocNum: () {
+          final v = pickStr(m, ['SapDocNum', 'sapDocNum', 'DocNum', 'docNum'], or: '');
+          return v.isEmpty ? null : v;
+        }(),
+        syncStatus: pickStr(m, ['SyncStatus', 'syncStatus'], or: ''),
+        lastSyncedAt: pickTime(m, ['LastSyncedAt', 'lastSyncedAt', 'SyncedAt', 'syncedAt']),
+      );
+    }
     final lines = <OrderLine>[];
     for (final row in pickList(m, ['Lines', 'lines', 'Items', 'items', 'OrderItems'])) {
       if (row is! Map) continue;

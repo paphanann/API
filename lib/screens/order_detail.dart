@@ -17,12 +17,15 @@ class OrderDetailScreen extends StatefulWidget {
 }
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
+  bool _loadingOne = true;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      OrderStore.instance.loadOne(widget.id);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (ProductStore.instance.products.isEmpty) ProductStore.instance.load();
+      await OrderStore.instance.loadOne(widget.id);
+      if (mounted) setState(() => _loadingOne = false);
     });
   }
 
@@ -35,6 +38,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   }
 
   Widget _body(BuildContext context, Order? o) {
+    if (_loadingOne && (o == null || o.lines.isEmpty)) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (o == null) {
       return Center(
         child: Column(
@@ -69,61 +75,36 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           Row(
             children: [
               IconButton(onPressed: () => context.go('/orders'), icon: const Icon(Icons.arrow_back_rounded)),
-              Text(o.id, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              const Text('รายละเอียดคำสั่งซื้อ', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
               const SizedBox(width: 12),
               orderPill(o.status),
             ],
           ),
           const SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, c) {
-              final wide = c.maxWidth >= 900;
-              final left = Panel(
-                expand: wide,
-                title: 'ข้อมูลลูกค้า',
-                child: Column(
-                  children: [
-                    kv('ชื่อลูกค้า', Text(o.customer, style: const TextStyle(fontWeight: FontWeight.w600))),
-                    kv('เบอร์โทร', Text(o.phone, style: const TextStyle(fontWeight: FontWeight.w600))),
-                    kv('ที่อยู่จัดส่ง', Text(o.address, style: const TextStyle(fontWeight: FontWeight.w600))),
-                  ],
-                ),
-              );
-              final shipName = o.shipping.trim();
-              final shipText = shipName.isEmpty || shipName == '-' ? 'ยังไม่ระบุ' : shipName;
-              final right = Panel(
-                expand: wide,
-                title: 'ข้อมูลคำสั่งซื้อ',
-                child: Column(
-                  children: [
-                    kv('Marketplace', ChannelLabel(channel: o.channel)),
-                    kv('Order ID (Marketplace)', Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600))),
-                    kv('วันที่สั่งซื้อ', Text(dtFmt.format(o.createdAt), style: const TextStyle(fontWeight: FontWeight.w600))),
-                    kv('ช่องทางชำระเงิน', Text(o.payment.isEmpty || o.payment == '-' ? '-' : o.payment, style: const TextStyle(fontWeight: FontWeight.w600))),
-                    kv('สถานะการจัดส่ง', Text(o.shippingStatus, style: const TextStyle(fontWeight: FontWeight.w600))),
-                    kv(
-                      'ขนส่ง',
-                      Row(
-                        children: [
-                          const Icon(Icons.local_shipping_outlined, size: 18, color: Pal.muted),
-                          const SizedBox(width: 6),
-                          Text(shipText, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        ],
+          Panel(
+            title: 'ข้อมูลคำสั่งซื้อ',
+            child: Column(
+              children: [
+                kv('Marketplace', ChannelLabel(channel: o.channel)),
+                kv('Order ID (Marketplace)', Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600))),
+                kv('วันที่สั่งซื้อ', Text(dtFmt.format(o.createdAt), style: const TextStyle(fontWeight: FontWeight.w600))),
+                kv('ช่องทางชำระเงิน', Text(o.payment.isEmpty || o.payment == '-' ? '-' : o.payment, style: const TextStyle(fontWeight: FontWeight.w600))),
+                kv('สถานะการจัดส่ง', Text(o.shippingStatus, style: const TextStyle(fontWeight: FontWeight.w600))),
+                kv(
+                  'ขนส่ง',
+                  Row(
+                    children: [
+                      const Icon(Icons.local_shipping_outlined, size: 18, color: Pal.muted),
+                      const SizedBox(width: 6),
+                      Text(
+                        o.shipping.trim().isEmpty || o.shipping.trim() == '-' ? 'ยังไม่ระบุ' : o.shipping.trim(),
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              );
-              if (!wide) {
-                return Column(children: [left, const SizedBox(height: 16), right]);
-              }
-              return IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [Expanded(child: left), const SizedBox(width: 16), Expanded(child: right)],
-                ),
-              );
-            },
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           Panel(
@@ -134,31 +115,31 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               children: [
                 FillTable(
                   child: DataTable(
-                      headingRowColor: tableHeadBg,
-                      headingTextStyle: tableHead,
-                      dataRowMinHeight: 64,
-                      dataRowMaxHeight: 72,
-                      columns: const [
-                        DataColumn(label: Text('SKU')),
-                        DataColumn(label: Text('รูป')),
-                        DataColumn(label: Text('สินค้า')),
-                        DataColumn(label: Text('จำนวน')),
-                        DataColumn(label: Text('ราคา/หน่วย')),
-                        DataColumn(label: Text('รวม')),
-                      ],
-                      rows: [
-                        for (final l in o.lines)
-                          DataRow(
-                            cells: [
-                              DataCell(Text(l.sku)),
-                              DataCell(_thumb(_lineImage(o, l))),
-                              DataCell(Text(l.name)),
-                              DataCell(Text('${l.qty}')),
-                              DataCell(Text(baht.format(l.price))),
-                              DataCell(Text(baht.format(l.amount), style: const TextStyle(fontWeight: FontWeight.w600))),
-                            ],
-                          ),
-                      ],
+                    headingRowColor: tableHeadBg,
+                    headingTextStyle: tableHead,
+                    dataRowMinHeight: 64,
+                    dataRowMaxHeight: 72,
+                    columns: const [
+                      DataColumn(label: Text('SKU')),
+                      DataColumn(label: Text('รูป')),
+                      DataColumn(label: Text('สินค้า')),
+                      DataColumn(label: Text('จำนวน')),
+                      DataColumn(label: Text('ราคา/หน่วย')),
+                      DataColumn(label: Text('รวม')),
+                    ],
+                    rows: [
+                      for (final l in o.lines)
+                        DataRow(
+                          cells: [
+                            DataCell(Text(l.sku)),
+                            DataCell(_thumb(_lineImage(o, l))),
+                            DataCell(Text(l.name)),
+                            DataCell(Text('${l.qty}')),
+                            DataCell(Text(baht.format(l.price))),
+                            DataCell(Text(baht.format(l.amount), style: const TextStyle(fontWeight: FontWeight.w600))),
+                          ],
+                        ),
+                    ],
                   ),
                 ),
                 const Divider(),

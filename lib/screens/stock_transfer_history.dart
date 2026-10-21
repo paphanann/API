@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../app/theme.dart';
+import '../core/api.dart';
 import '../core/format.dart';
 import '../models/models.dart';
 import '../stores/stores.dart';
@@ -29,8 +30,15 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     final today = dateOnly(DateTime.now());
     _toDate = today;
     _fromDate = today.subtract(const Duration(days: 30));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (mounted) TransferStore.instance.load();
+      try {
+        final opts = await Api.getErpOptions();
+        if (!mounted) return;
+        if (opts.warehouseNames.isNotEmpty) {
+          setState(() => setLiveWarehouses(opts.warehouseNames));
+        }
+      } catch (_) {}
     });
   }
 
@@ -189,7 +197,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
                   onChanged: (v) => setState(() => _from = v ?? ''),
                   items: [
                     const DropdownMenuItem(value: '', child: Text('ทั้งหมด')),
-                    ...sapWarehouses.map((w) => DropdownMenuItem(value: w.code, child: Text(w.label))),
+                    ...liveWarehouses.map((w) => DropdownMenuItem(value: w.code, child: Text(w.label))),
                   ],
                 ),
                 const SizedBox(width: 8),
@@ -200,7 +208,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
                   onChanged: (v) => setState(() => _to = v ?? ''),
                   items: [
                     const DropdownMenuItem(value: '', child: Text('ทั้งหมด')),
-                    ...sapWarehouses.map((w) => DropdownMenuItem(value: w.code, child: Text(w.label))),
+                    ...liveWarehouses.map((w) => DropdownMenuItem(value: w.code, child: Text(w.label))),
                   ],
                 ),
                 const SizedBox(width: 8),
@@ -267,34 +275,36 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
           const SizedBox(height: 16),
           LayoutBuilder(
             builder: (context, c) {
+              int countStatus(String token) =>
+                  rows.where((t) => t.status.toLowerCase().contains(token)).length;
               final cards = [
-                const StatCard(
+                StatCard(
                   title: 'รายการทั้งหมด',
-                  value: '0',
+                  value: '${rows.length}',
                   icon: Icons.inventory_2_outlined,
                   color: Pal.primary,
-                  hint: Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
+                  hint: const Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
                 ),
-                const StatCard(
+                StatCard(
                   title: 'สำเร็จ',
-                  value: '0',
+                  value: '${countStatus('success')}',
                   icon: Icons.check_circle_outline_rounded,
                   color: Pal.ok,
-                  hint: Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
+                  hint: const Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
                 ),
-                const StatCard(
+                StatCard(
                   title: 'Pending SAP',
-                  value: '0',
+                  value: '${countStatus('pending')}',
                   icon: Icons.schedule_rounded,
                   color: Pal.warn,
-                  hint: Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
+                  hint: const Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
                 ),
-                const StatCard(
+                StatCard(
                   title: 'Failed',
-                  value: '0',
+                  value: '${countStatus('fail')}',
                   icon: Icons.cancel_outlined,
                   color: Pal.err,
-                  hint: Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
+                  hint: const Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
                 ),
               ];
               if (c.maxWidth < 900) {
@@ -325,41 +335,46 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 FillTable(
-                  minWidth: 1480,
+                  minWidth: 1720,
                   child: DataTable(
                     headingRowColor: tableHeadBg,
                     headingTextStyle: tableHead,
+                    headingRowHeight: 44,
+                    columnSpacing: 16,
+                    horizontalMargin: 8,
                     dataRowMinHeight: 52,
                     dataRowMaxHeight: 64,
                     columns: const [
-                      DataColumn(label: Text('วันที่กำหนด')),
-                      DataColumn(label: Text('เลขที่เอกสาร')),
-                      DataColumn(label: Text('Reference No.')),
-                      DataColumn(label: Text('จากคลัง')),
-                      DataColumn(label: Text('ไปคลัง')),
-                      DataColumn(label: Text('Platform')),
-                      DataColumn(label: Text('จำนวนรายการ')),
-                      DataColumn(label: Text('จำนวนรวมโอน')),
-                      DataColumn(label: Text('SAP DocNumber')),
-                      DataColumn(label: Text('สถานะ')),
-                      DataColumn(label: Text('ผู้ขอโอน')),
-                      DataColumn(label: Text('Action')),
+                      DataColumn(label: SizedBox(width: 28, child: Text('#', maxLines: 1, softWrap: false))),
+                      DataColumn(label: Text('วันที่กำหนด', maxLines: 1, softWrap: false)),
+                      DataColumn(label: Text('เลขที่เอกสาร', maxLines: 1, softWrap: false)),
+                      DataColumn(label: SizedBox(width: 110, child: Text('Reference No.', maxLines: 1, softWrap: false))),
+                      DataColumn(label: Text('จากคลัง', maxLines: 1, softWrap: false)),
+                      DataColumn(label: Text('ไปคลัง', maxLines: 1, softWrap: false)),
+                      DataColumn(label: Text('Platform', maxLines: 1, softWrap: false)),
+                      DataColumn(label: SizedBox(width: 100, child: Text('จำนวนรายการ', maxLines: 1, softWrap: false))),
+                      DataColumn(label: SizedBox(width: 110, child: Text('จำนวนรวมโอน', maxLines: 1, softWrap: false))),
+                      DataColumn(label: SizedBox(width: 130, child: Text('SAP DocNumber', maxLines: 1, softWrap: false))),
+                      DataColumn(label: Text('สถานะ', maxLines: 1, softWrap: false)),
+                      DataColumn(label: Text('ผู้ขอโอน', maxLines: 1, softWrap: false)),
+                      DataColumn(label: Text('Action', maxLines: 1, softWrap: false)),
                     ],
                     rows: [
-                      for (final t in rows)
+                      for (var i = 0; i < rows.length; i++)
                         DataRow(
                           cells: [
-                            DataCell(Text(t.scheduleDate == null ? '-' : dtFmt.format(t.scheduleDate!))),
-                            DataCell(Text(t.id)),
-                            DataCell(Text(t.referenceNo.isEmpty || t.referenceNo == '-' ? '-' : t.referenceNo)),
-                            DataCell(Text(warehouseLabel(t.fromLabel))),
-                            DataCell(Text(warehouseLabel(t.toLabel))),
-                            DataCell(Text(_platformLabel(t.platform))),
-                            DataCell(Text('${t.items.length}')),
-                            DataCell(Text('${t.qtyTotal}')),
-                            DataCell(Text(t.id)),
-                            DataCell(transferPill(t.status)),
-                            DataCell(Text(t.requestedBy.isEmpty || t.requestedBy == '-' ? '-' : t.requestedBy)),
+                            DataCell(Text('${i + 1}', style: const TextStyle(color: Pal.muted))),
+                            DataCell(Text(rows[i].scheduleDate == null ? '-' : dtFmt.format(rows[i].scheduleDate!))),
+                            DataCell(Text(rows[i].id)),
+                            DataCell(Text(rows[i].referenceNo.isEmpty || rows[i].referenceNo == '-' ? '-' : rows[i].referenceNo)),
+                            DataCell(Text(warehouseLabel(rows[i].fromLabel))),
+                            DataCell(Text(warehouseLabel(rows[i].toLabel))),
+                            DataCell(Text(_platformLabel(rows[i].platform))),
+                            DataCell(Text('${rows[i].items.length}')),
+                            DataCell(Text('${rows[i].qtyTotal}')),
+                            DataCell(Text(rows[i].id)),
+                            DataCell(transferPill(rows[i].status)),
+                            DataCell(Text(rows[i].requestedBy.isEmpty || rows[i].requestedBy == '-' ? '-' : rows[i].requestedBy)),
                             DataCell(const Text('ดูรายละเอียด', style: TextStyle(color: Pal.primary, fontWeight: FontWeight.w600))),
                           ],
                         ),

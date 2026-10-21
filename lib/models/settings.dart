@@ -1,4 +1,5 @@
 import '../core/json_util.dart';
+import 'warehouse.dart';
 
 class AppSettings {
   const AppSettings({
@@ -209,6 +210,7 @@ class ErpOptions {
   const ErpOptions({
     this.cardCodes = const [],
     this.warehouses = const [],
+    this.warehouseNames = const [],
     this.branches = const [],
     this.taxCodes = const [],
     this.databases = const [],
@@ -224,9 +226,12 @@ class ErpOptions {
       ];
     }
 
+    final named = parseWarehouses(pick(m, ['warehouseNames', 'WarehouseNames']));
+    final codesOnly = codes(['warehouses', 'Warehouses', 'whsCodes', 'WhsCode']);
     return ErpOptions(
       cardCodes: codes(['cardCodes', 'CardCodes', 'customers', 'CardCode']),
-      warehouses: codes(['warehouses', 'Warehouses', 'whsCodes', 'WhsCode']),
+      warehouses: named.isNotEmpty ? [for (final row in named) row.code] : codesOnly,
+      warehouseNames: named,
       branches: codes(['branches', 'Branches', 'businessPlaces']),
       taxCodes: codes(['taxCodes', 'TaxCodes', 'taxes']),
       databases: parseSapDatabases(pick(m, ['databases', 'Databases', 'companies', 'Companies', 'companyDatabases'])),
@@ -235,6 +240,7 @@ class ErpOptions {
 
   final List<String> cardCodes;
   final List<String> warehouses;
+  final List<SapWarehouse> warehouseNames;
   final List<String> branches;
   final List<String> taxCodes;
   final List<SapDatabase> databases;

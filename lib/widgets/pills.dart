@@ -38,7 +38,7 @@ Widget syncPill(SyncStatus s) {
 Widget orderSyncPill(String? raw) {
   final v = (raw ?? '').toLowerCase();
   if (v.contains('sap_ok') || v.contains('sapok') || v == 'ok') {
-    return pill('เข้า SAP แล้ว', const Color(0xFF15803D), Pal.okBg);
+    return pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg);
   }
   if (v.contains('sap_error') || v.contains('error')) {
     return pill('SAP ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);

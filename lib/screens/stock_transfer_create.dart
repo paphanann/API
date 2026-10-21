@@ -50,7 +50,7 @@ class StockTransferCreateScreen extends StatefulWidget {
 class _StockTransferCreateScreenState extends State<StockTransferCreateScreen> {
   int _step = 0;
   String _platform = '';
-  String _from = '01';
+  String _from = '';
   String _to = '';
   String _wh = 'all';
   String _st = 'all';
@@ -64,7 +64,7 @@ class _StockTransferCreateScreenState extends State<StockTransferCreateScreen> {
   final _sapItems = <_SapLine>[];
   bool _loadingItems = false;
   int _page = 1;
-  List<String> _warehouses = [for (final w in sapWarehouses) w.code];
+  List<String> _warehouses = const [];
   StockTransfer? _created;
 
   @override
@@ -78,9 +78,11 @@ class _StockTransferCreateScreenState extends State<StockTransferCreateScreen> {
         final sap = await Api.getSapItems();
         if (!mounted) return;
         setState(() {
-          _warehouses = [
-            ...{for (final w in sapWarehouses) w.code, ...opts.warehouses},
-          ];
+          if (opts.warehouseNames.isNotEmpty) setLiveWarehouses(opts.warehouseNames);
+          _warehouses = [for (final w in liveWarehouses) w.code];
+          if (!_warehouses.contains(_from)) {
+            _from = _warehouses.contains('01') ? '01' : (_warehouses.isEmpty ? '' : _warehouses.first);
+          }
           _sapItems
             ..clear()
             ..addAll([
@@ -380,83 +382,84 @@ class _StockTransferCreateScreenState extends State<StockTransferCreateScreen> {
                 const SizedBox(height: 12),
                 if (_loadingItems) const LinearProgressIndicator(minHeight: 3),
                 FillTable(
-                  minWidth: 1100,
-                  child: DataTable(
-                    showCheckboxColumn: false,
-                    headingRowColor: tableHeadBg,
-                    headingTextStyle: tableHead,
-                    headingRowHeight: 48,
-                    columnSpacing: 28,
-                    dataRowMinHeight: 56,
-                    dataRowMaxHeight: 72,
-                    columns: const [
-                      DataColumn(label: SizedBox(width: 28, child: Text(''))),
-                      DataColumn(label: Text('SKU')),
-                      DataColumn(label: Text('ชื่อสินค้า')),
-                      DataColumn(
-                        label: SizedBox(
-                          width: 110,
-                          child: Text('คงเหลือ SAP', maxLines: 1, softWrap: false, overflow: TextOverflow.visible),
-                        ),
+                  minWidth: 980,
+                  child: Table(
+                    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                    columnWidths: const {
+                      0: FixedColumnWidth(40),
+                      1: FixedColumnWidth(36),
+                      2: FlexColumnWidth(1.6),
+                      3: FlexColumnWidth(2.4),
+                      4: FixedColumnWidth(120),
+                      5: FixedColumnWidth(128),
+                      6: FixedColumnWidth(72),
+                    },
+                    border: const TableBorder(
+                      horizontalInside: BorderSide(color: Pal.line),
+                    ),
+                    children: [
+                      TableRow(
+                        decoration: const BoxDecoration(color: Color(0xFFF8FAFC)),
+                        children: [
+                          _pickHead('#'),
+                          const SizedBox.shrink(),
+                          _pickHead('SKU'),
+                          _pickHead('ชื่อสินค้า'),
+                          _pickHead('คงเหลือ SAP'),
+                          _pickHead('จำนวนโอน'),
+                          _pickHead('หน่วย'),
+                        ],
                       ),
-                      DataColumn(
-                        label: SizedBox(
-                          width: 120,
-                          child: Text('จำนวนโอน', maxLines: 1, softWrap: false, overflow: TextOverflow.visible),
-                        ),
-                      ),
-                      DataColumn(
-                        label: SizedBox(
-                          width: 56,
-                          child: Text('หน่วย', maxLines: 1, softWrap: false, overflow: TextOverflow.visible),
-                        ),
-                      ),
-                    ],
-                    rows: [
-                      for (final r in rows)
-                        DataRow(
-                          cells: [
-                            DataCell(
+                      for (var i = 0; i < rows.length; i++)
+                        TableRow(
+                          children: [
+                            _pickCell(Text('${start + i + 1}', style: const TextStyle(color: Pal.muted)), padding: const EdgeInsets.fromLTRB(8, 8, 0, 8)),
+                            _pickCell(
+                              padding: EdgeInsets.zero,
                               Checkbox(
-                                value: r.selected,
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                value: rows[i].selected,
                                 onChanged: (v) => setState(() {
-                                  r.selected = v ?? false;
-                                  if (r.selected && r.qty <= 0) r.qty = 1;
-                                  if (!r.selected) r.qty = 0;
+                                  rows[i].selected = v ?? false;
+                                  if (rows[i].selected && rows[i].qty <= 0) rows[i].qty = 1;
+                                  if (!rows[i].selected) rows[i].qty = 0;
                                 }),
                               ),
                             ),
-                            DataCell(
+                            _pickCell(
                               Row(
                                 children: [
-                                  _thumb(r.image),
+                                  _thumb(rows[i].image),
                                   const SizedBox(width: 8),
-                                  Text(r.sku, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                  Flexible(
+                                    child: Text(rows[i].sku, style: const TextStyle(fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  ),
                                 ],
                               ),
                             ),
-                            DataCell(Text(r.name, maxLines: 2, overflow: TextOverflow.ellipsis)),
-                            DataCell(Text('${r.stock}')),
-                            DataCell(
+                            _pickCell(Text(rows[i].name, maxLines: 2, overflow: TextOverflow.ellipsis)),
+                            _pickCell(Text('${rows[i].stock}')),
+                            _pickCell(
                               SizedBox(
                                 width: 88,
                                 child: TextField(
-                                  key: ValueKey('${r.sku}-${r.qty}'),
-                                  controller: TextEditingController(text: r.qty == 0 ? '' : '${r.qty}')
-                                    ..selection = TextSelection.collapsed(offset: r.qty == 0 ? 0 : '${r.qty}'.length),
+                                  key: ValueKey('${rows[i].sku}-${rows[i].qty}'),
+                                  controller: TextEditingController(text: rows[i].qty == 0 ? '' : '${rows[i].qty}')
+                                    ..selection = TextSelection.collapsed(offset: rows[i].qty == 0 ? 0 : '${rows[i].qty}'.length),
                                   keyboardType: TextInputType.number,
                                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                                   onChanged: (v) {
                                     final n = int.tryParse(v) ?? 0;
-                                    r.qty = n;
-                                    r.selected = n > 0;
+                                    rows[i].qty = n;
+                                    rows[i].selected = n > 0;
                                   },
                                   onEditingComplete: () => setState(() {}),
                                   decoration: const InputDecoration(isDense: true, hintText: '0'),
                                 ),
                               ),
                             ),
-                            DataCell(Text(r.unit)),
+                            _pickCell(Text(rows[i].unit)),
                           ],
                         ),
                     ],
@@ -514,7 +517,7 @@ class _StockTransferCreateScreenState extends State<StockTransferCreateScreen> {
         children: [
           const Text('ตรวจสอบข้อมูลก่อนยืนยัน', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          const Text('กรุณาตรวจสอบข้อมูลก่อนยืนยันการสร้างเอกสารใน SAP Business One', style: TextStyle(color: Pal.muted, fontSize: 14)),
+          const Text('กรุณาตรวจสอบข้อมูลก่อนบันทึกเป็น Inventory Transfer Request ใน SAP', style: TextStyle(color: Pal.muted, fontSize: 14)),
           const SizedBox(height: 16),
           Panel(
             title: 'ข้อมูลเอกสาร',
@@ -621,11 +624,11 @@ class _StockTransferCreateScreenState extends State<StockTransferCreateScreen> {
                   child: const Icon(Icons.check_rounded, color: Pal.ok, size: 40),
                 ),
                 const SizedBox(height: 16),
-                const Text('โอนสต็อกสำเร็จ', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+                const Text('สร้างใบขอโอนสำเร็จ', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                const Text('สร้างเอกสารใน SAP และอัปเดตข้อมูลเรียบร้อยแล้ว', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted, fontSize: 13)),
+                const Text('บันทึกเป็น Inventory Transfer Request ใน SAP แล้ว', textAlign: TextAlign.center, style: TextStyle(color: Pal.muted, fontSize: 13)),
                 const SizedBox(height: 22),
-                _kv('เลขที่เอกสาร SAP (Stock Transfer)', Text(t?.id ?? '-')),
+                _kv('เลขที่เอกสาร SAP (Inventory Transfer Request)', Text(t?.id ?? '-')),
                 _kv('วันที่เอกสาร', Text(dayFmt.format(_docDate))),
                 _kv('ผู้ขอโอน', Text(_requester.text.trim().isEmpty ? '-' : _requester.text.trim())),
                 _kv('เหตุผลการโอน', Text(_note.text.trim().isEmpty ? '-' : _note.text.trim())),
@@ -689,10 +692,9 @@ class _StockTransferCreateScreenState extends State<StockTransferCreateScreen> {
   }
 
   List<DropdownMenuItem<String>> _warehouseItems() {
-    final codes = [
-      ...{for (final w in sapWarehouses) w.code, ..._warehouses},
-    ];
-    return [for (final c in codes) DropdownMenuItem(value: c, child: Text(warehouseLabel(c)))];
+    final rows = liveWarehouses.where((w) => _warehouses.contains(w.code)).toList();
+    final source = rows.isEmpty ? [for (final code in _warehouses) SapWarehouse(code)] : rows;
+    return [for (final w in source) DropdownMenuItem(value: w.code, child: Text(w.label))];
   }
 
   Widget _kv(String k, Widget v) {
@@ -705,6 +707,20 @@ class _StockTransferCreateScreenState extends State<StockTransferCreateScreen> {
           Expanded(child: v),
         ],
       ),
+    );
+  }
+
+  Widget _pickHead(String text) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 12, 4, 12),
+      child: Text(text, style: tableHead, maxLines: 1, softWrap: false),
+    );
+  }
+
+  Widget _pickCell(Widget child, {EdgeInsetsGeometry padding = const EdgeInsets.fromLTRB(8, 8, 4, 8)}) {
+    return Padding(
+      padding: padding,
+      child: Align(alignment: Alignment.centerLeft, child: child),
     );
   }
 

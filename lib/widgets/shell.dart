@@ -115,8 +115,7 @@ class AppShell extends StatelessWidget {
 
   String _title(String path) {
     if (path == '/') return 'หน้าหลัก';
-    if (path.startsWith('/orders/')) return 'รายละเอียดคำสั่งซื้อ';
-    if (path == '/orders') return '';
+    if (path.startsWith('/orders')) return '';
     if (path == '/products') return '';
     if (path == '/inventory') return '';
     if (path.startsWith('/products')) return 'สินค้า';

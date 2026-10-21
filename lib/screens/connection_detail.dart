@@ -22,7 +22,7 @@ class ConnectionDetailScreen extends StatefulWidget {
 class _ConnectionDetailScreenState extends State<ConnectionDetailScreen> {
   bool _editing = false;
   bool _testing = false;
-  List<String> _warehouses = [for (final w in sapWarehouses) w.code];
+  List<String> _warehouses = const [];
   late final TextEditingController _note;
   late final TextEditingController _group;
   String _country = '';
@@ -41,9 +41,8 @@ class _ConnectionDetailScreenState extends State<ConnectionDetailScreen> {
         final opts = await Api.getErpOptions();
         if (mounted) {
           setState(() {
-            _warehouses = [
-              ...{for (final w in sapWarehouses) w.code, ...opts.warehouses},
-            ];
+            if (opts.warehouseNames.isNotEmpty) setLiveWarehouses(opts.warehouseNames);
+            _warehouses = [for (final w in liveWarehouses) w.code];
           });
         }
       } catch (_) {}
@@ -187,7 +186,6 @@ class _ConnectionDetailScreenState extends State<ConnectionDetailScreen> {
   Widget _infoCard(ShopConn shop) {
     final warehouses = <String>{
       if (_warehouse.isNotEmpty) _warehouse,
-      for (final w in sapWarehouses) w.code,
       ..._warehouses,
     }.toList();
 

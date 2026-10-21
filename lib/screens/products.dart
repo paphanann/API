@@ -276,12 +276,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         return _TableViewport(
                           width: box.maxWidth,
                           child: FillTable(
-                            minWidth: 1940,
+                            minWidth: 1980,
                             child: Column(
                               children: [
                                 _header(),
                                 const Divider(height: 1),
-                                for (final p in rows) _ProductBlock(p),
+                                for (var i = 0; i < rows.length; i++) _ProductBlock(rows[i], start + i + 1),
                               ],
                             ),
                           ),
@@ -319,6 +319,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       color: const Color(0xFFF8FAFC),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       child: _ProdCols(
+        seq: const Text('#', style: tableHead),
         chevron: const SizedBox.shrink(),
         product: const Text('สินค้า', style: tableHead),
         platform: const Text('แพลตฟอร์ม', style: tableHead),
@@ -337,6 +338,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
 
 class _ProdCols extends StatelessWidget {
   const _ProdCols({
+    required this.seq,
     required this.chevron,
     required this.product,
     required this.platform,
@@ -350,6 +352,7 @@ class _ProdCols extends StatelessWidget {
     required this.mapping,
   });
 
+  final Widget seq;
   final Widget chevron;
   final Widget product;
   final Widget platform;
@@ -374,11 +377,12 @@ class _ProdCols extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        SizedBox(width: 32, child: seq),
         SizedBox(width: 28, child: chevron),
         Expanded(child: product),
         cell(140, platform),
-        cell(120, price),
         cell(160, shop),
+        cell(120, price),
         cell(100, stock),
         cell(130, variants),
         cell(120, status),
@@ -401,9 +405,10 @@ Widget _mapPill(bool mapped, {String? label}) {
 }
 
 class _ProductBlock extends StatefulWidget {
-  const _ProductBlock(this.p);
+  const _ProductBlock(this.p, this.seq);
 
   final Product p;
+  final int seq;
 
   @override
   State<_ProductBlock> createState() => _ProductBlockState();
@@ -429,6 +434,7 @@ class _ProductBlockState extends State<_ProductBlock> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
             child: _ProdCols(
+              seq: Text('${widget.seq}', style: const TextStyle(color: Pal.muted)),
               chevron: p.hasVariants
                   ? Icon(_open ? Icons.expand_more_rounded : Icons.chevron_right_rounded, size: 22, color: Pal.muted)
                   : const SizedBox.shrink(),
@@ -499,6 +505,7 @@ class _ProductBlockState extends State<_ProductBlock> {
                     dataRowMinHeight: 48,
                     dataRowMaxHeight: 60,
                     columns: const [
+                      DataColumn(label: SizedBox(width: 28, child: Text('#', maxLines: 1, softWrap: false))),
                       DataColumn(label: Text('SKU')),
                       DataColumn(label: Text('Model ID')),
                       DataColumn(label: Text('ตัวเลือก')),
@@ -510,23 +517,24 @@ class _ProductBlockState extends State<_ProductBlock> {
                       DataColumn(label: Text('ปัญหา')),
                     ],
                     rows: [
-                      for (final v in p.variants)
+                      for (var i = 0; i < p.variants.length; i++)
                         DataRow(
                           cells: [
-                            DataCell(Text(_sellerSku(v), style: const TextStyle(fontWeight: FontWeight.w600))),
-                            DataCell(Text(v.modelId.isEmpty ? '-' : v.modelId)),
+                            DataCell(Text('${i + 1}', style: const TextStyle(color: Pal.muted))),
+                            DataCell(Text(_sellerSku(p.variants[i]), style: const TextStyle(fontWeight: FontWeight.w600))),
+                            DataCell(Text(p.variants[i].modelId.isEmpty ? '-' : p.variants[i].modelId)),
                             DataCell(
                               SizedBox(
                                 width: 220,
-                                child: Text(v.option.isEmpty ? '-' : v.option, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                child: Text(p.variants[i].option.isEmpty ? '-' : p.variants[i].option, maxLines: 2, overflow: TextOverflow.ellipsis),
                               ),
                             ),
-                            DataCell(Text(baht.format(v.price))),
-                            DataCell(Text('${v.stock}')),
-                            DataCell(Text(v.sapItemCode.isEmpty ? '-' : v.sapItemCode)),
-                            DataCell(_mapPill(v.mapped)),
-                            DataCell(productPill(v.status)),
-                            DataCell(productProblemCell(v.problem)),
+                            DataCell(Text(baht.format(p.variants[i].price))),
+                            DataCell(Text('${p.variants[i].stock}')),
+                            DataCell(Text(p.variants[i].sapItemCode.isEmpty ? '-' : p.variants[i].sapItemCode)),
+                            DataCell(_mapPill(p.variants[i].mapped)),
+                            DataCell(productPill(p.variants[i].status)),
+                            DataCell(productProblemCell(p.variants[i].problem)),
                           ],
                         ),
                     ],

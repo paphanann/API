@@ -378,7 +378,16 @@ class Api {
     final res = await _send(http.get(_u('/api/orders', query.isEmpty ? null : query), headers: _headers()));
     final rows = _list(await _json(res));
     final fallback = ChannelX.fromApi(platform);
-    return [for (final row in rows) if (row is Map) Order.fromApi(Map<String, dynamic>.from(row), fallbackChannel: fallback)];
+    final out = <Order>[];
+    for (var i = 0; i < rows.length; i++) {
+      final row = rows[i];
+      if (row is Map) {
+        final map = row is Map<String, dynamic> ? row : Map<String, dynamic>.from(row);
+        out.add(Order.fromApi(map, fallbackChannel: fallback, listOnly: true));
+      }
+      if (i > 0 && i % 80 == 0) await Future<void>.delayed(Duration.zero);
+    }
+    return out;
   }
 
   static Future<void> syncPlatform(Channel channel) async {
