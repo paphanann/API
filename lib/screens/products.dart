@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/api.dart';
 import '../core/format.dart';
@@ -100,6 +101,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
     });
   }
 
+  DateTime? _lastSyncAt() {
+    DateTime? last;
+    for (final s in ShopStore.instance.realShops) {
+      final t = s.lastSync;
+      if (t != null && (last == null || t.isAfter(last))) last = t;
+    }
+    for (final p in ProductStore.instance.products) {
+      final t = p.updatedAt;
+      if (t != null && (last == null || t.isAfter(last))) last = t;
+    }
+    return last;
+  }
+
   List<Product> _filtered() {
     final q = _q.toLowerCase();
     return ProductStore.instance.products.where((p) {
@@ -148,10 +162,18 @@ class _ProductsScreenState extends State<ProductsScreen> {
               ),
               const SizedBox(height: 20),
               Panel(
-                pad: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                pad: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        _lastSyncAt() == null ? 'Sync ล่าสุด : -' : 'Sync ล่าสุด : ${dtFmt.format(_lastSyncAt()!)}',
+                        style: const TextStyle(color: Pal.muted, fontSize: 13),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     Wrap(
                       spacing: 12,
                       runSpacing: 12,
@@ -174,7 +196,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         Drop<String>(
                           label: 'ร้านค้า',
                           value: _shop,
-                          width: 200,
+                          width: 180,
                           onChanged: (v) => setState(() {
                             _shop = v ?? 'all';
                             _page = 1;
@@ -192,7 +214,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         Drop<String>(
                           label: 'สถานะ',
                           value: _st,
-                          width: 160,
+                          width: 150,
                           onChanged: (v) => setState(() {
                             _st = v ?? 'all';
                             _page = 1;
@@ -207,7 +229,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         Drop<String>(
                           label: 'ปัญหา',
                           value: _issue,
-                          width: 200,
+                          width: 170,
                           onChanged: (v) => setState(() {
                             _issue = v ?? 'all';
                             _page = 1;
@@ -220,7 +242,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         ),
                         DateRangeField(from: _from, to: _to, onTap: _pickRange),
                         SizedBox(
-                          width: 260,
+                          width: 240,
                           child: TextField(
                             controller: _search,
                             onChanged: _onQuery,
@@ -276,7 +298,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         return _TableViewport(
                           width: box.maxWidth,
                           child: FillTable(
-                            minWidth: 1980,
+                            minWidth: 1850,
                             child: Column(
                               children: [
                                 _header(),
@@ -320,13 +342,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       child: _ProdCols(
         seq: const Text('#', style: tableHead),
-        chevron: const SizedBox.shrink(),
         product: const Text('สินค้า', style: tableHead),
         platform: const Text('แพลตฟอร์ม', style: tableHead),
         shop: const Text('ชื่อร้าน', style: tableHead),
         price: const Text('ราคาเริ่มต้น', style: tableHead),
         stock: const Text('Stock รวม', style: tableHead),
-        variants: const Text('จำนวน Variant', style: tableHead),
         status: const Text('สถานะ', style: tableHead),
         sap: const Text('SAP ItemCode', style: tableHead),
         mapping: const Text('Mapping', style: tableHead),
@@ -339,13 +359,11 @@ class _ProductsScreenState extends State<ProductsScreen> {
 class _ProdCols extends StatelessWidget {
   const _ProdCols({
     required this.seq,
-    required this.chevron,
     required this.product,
     required this.platform,
     required this.price,
     required this.shop,
     required this.stock,
-    required this.variants,
     required this.status,
     required this.problem,
     required this.sap,
@@ -353,13 +371,11 @@ class _ProdCols extends StatelessWidget {
   });
 
   final Widget seq;
-  final Widget chevron;
   final Widget product;
   final Widget platform;
   final Widget price;
   final Widget shop;
   final Widget stock;
-  final Widget variants;
   final Widget status;
   final Widget problem;
   final Widget sap;
@@ -378,13 +394,11 @@ class _ProdCols extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(width: 32, child: seq),
-        SizedBox(width: 28, child: chevron),
         Expanded(child: product),
         cell(140, platform),
         cell(160, shop),
         cell(120, price),
         cell(100, stock),
-        cell(130, variants),
         cell(120, status),
         cell(140, sap),
         cell(150, mapping),
@@ -424,21 +438,29 @@ class _ProductBlockState extends State<_ProductBlock> {
     return sku;
   }
 
+  String get _code {
+    final sku = widget.p.sku.trim();
+    if (sku.isNotEmpty && sku != '-') return sku;
+    return widget.p.displayId;
+  }
+
+  Future<void> _copyCode() async {
+    await Clipboard.setData(ClipboardData(text: _code));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('คัดลอกรหัสแล้ว')));
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.p;
     return Column(
       children: [
-        InkWell(
-          onTap: p.hasVariants ? () => setState(() => _open = !_open) : null,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-            child: _ProdCols(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+          child: _ProdCols(
               seq: Text('${widget.seq}', style: const TextStyle(color: Pal.muted)),
-              chevron: p.hasVariants
-                  ? Icon(_open ? Icons.expand_more_rounded : Icons.chevron_right_rounded, size: 22, color: Pal.muted)
-                  : const SizedBox.shrink(),
               product: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _thumb(p.imageUrl.isNotEmpty ? p.imageUrl : (p.hasVariants ? p.variants.first.imageUrl : '')),
                   const SizedBox(width: 10),
@@ -446,9 +468,63 @@ class _ProductBlockState extends State<_ProductBlock> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(p.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 2),
-                        Text('Product ID: ${p.displayId}', style: const TextStyle(fontSize: 12, color: Pal.muted)),
+                        SizedBox(
+                          width: double.infinity,
+                          child: Text(
+                            p.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                'รหัส ${_code}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 12, color: Pal.muted),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            InkWell(
+                              onTap: _copyCode,
+                              borderRadius: BorderRadius.circular(4),
+                              child: const Padding(
+                                padding: EdgeInsets.all(2),
+                                child: Icon(Icons.content_copy_rounded, size: 14, color: Pal.faint),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (p.hasVariants) ...[
+                          const SizedBox(height: 6),
+                          InkWell(
+                            onTap: () => setState(() => _open = !_open),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Pal.primarySoft,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFD6E2F5)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(_open ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 16, color: Pal.primary),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${p.variantCount} รายการย่อย',
+                                    style: const TextStyle(color: Pal.primary, fontSize: 12, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -462,90 +538,61 @@ class _ProductBlockState extends State<_ProductBlock> {
                 overflow: TextOverflow.ellipsis,
               ),
               stock: Text('${p.stockTotal}'),
-              variants: Text(p.hasVariants ? '${p.variantCount}' : '-'),
               status: productPill(p.status),
               sap: Text(p.parentSap.isEmpty ? '-' : p.parentSap, maxLines: 1, overflow: TextOverflow.ellipsis),
               mapping: _mapPill(p.mapped, label: p.parentSap == 'บางส่วน' ? 'บางส่วน' : null),
               problem: productProblemCell(p.problem),
             ),
           ),
-        ),
         if (_open && p.hasVariants)
-          Builder(
-            builder: (context) {
-              final viewW = _TableViewport.maybeOf(context);
-              final innerW = viewW == null ? null : (viewW - 44).clamp(280.0, 4000.0);
-              return Align(
-                alignment: Alignment.centerLeft,
-                child: SizedBox(
-                  width: innerW,
-                  child: Container(
-                    margin: const EdgeInsets.fromLTRB(36, 0, 8, 12),
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Pal.line),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.only(bottom: 8),
-                          child: Text('รายการสินค้าย่อย (Variant)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                        ),
-                        FillTable(
-                          minWidth: 1200,
-                          viewportWidth: innerW == null ? null : (innerW - 24).clamp(240.0, 4000.0),
-                          child: DataTable(
-                    headingRowColor: tableHeadBg,
-                    headingTextStyle: tableHead,
-                    columnSpacing: 24,
-                    horizontalMargin: 12,
-                    dataRowMinHeight: 48,
-                    dataRowMaxHeight: 60,
-                    columns: const [
-                      DataColumn(label: SizedBox(width: 28, child: Text('#', maxLines: 1, softWrap: false))),
-                      DataColumn(label: Text('SKU')),
-                      DataColumn(label: Text('Model ID')),
-                      DataColumn(label: Text('ตัวเลือก')),
-                      DataColumn(label: Text('ราคา')),
-                      DataColumn(label: Text('Stock')),
-                      DataColumn(label: Text('SAP ItemCode')),
-                      DataColumn(label: Text('Mapping')),
-                      DataColumn(label: Text('สถานะ')),
-                      DataColumn(label: Text('ปัญหา')),
-                    ],
-                    rows: [
-                      for (var i = 0; i < p.variants.length; i++)
-                        DataRow(
-                          cells: [
-                            DataCell(Text('${i + 1}', style: const TextStyle(color: Pal.muted))),
-                            DataCell(Text(_sellerSku(p.variants[i]), style: const TextStyle(fontWeight: FontWeight.w600))),
-                            DataCell(Text(p.variants[i].modelId.isEmpty ? '-' : p.variants[i].modelId)),
-                            DataCell(
-                              SizedBox(
-                                width: 220,
-                                child: Text(p.variants[i].option.isEmpty ? '-' : p.variants[i].option, maxLines: 2, overflow: TextOverflow.ellipsis),
-                              ),
-                            ),
-                            DataCell(Text(baht.format(p.variants[i].price))),
-                            DataCell(Text('${p.variants[i].stock}')),
-                            DataCell(Text(p.variants[i].sapItemCode.isEmpty ? '-' : p.variants[i].sapItemCode)),
-                            DataCell(_mapPill(p.variants[i].mapped)),
-                            DataCell(productPill(p.variants[i].status)),
-                            DataCell(productProblemCell(p.variants[i].problem)),
-                          ],
-                        ),
-                    ],
-                  ),
-                        ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+            child: Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Pal.line),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: DataTable(
+                headingRowColor: tableHeadBg,
+                headingTextStyle: tableHead,
+                columnSpacing: 24,
+                horizontalMargin: 16,
+                dataRowMinHeight: 48,
+                dataRowMaxHeight: 60,
+                columns: const [
+                  DataColumn(label: SizedBox(width: 28, child: Text('#', maxLines: 1, softWrap: false))),
+                  DataColumn(label: Text('SKU')),
+                  DataColumn(label: Text('Model ID')),
+                  DataColumn(label: Text('ตัวเลือก')),
+                  DataColumn(label: Text('ราคา')),
+                  DataColumn(label: Text('Stock')),
+                  DataColumn(label: Text('SAP ItemCode')),
+                  DataColumn(label: Text('Mapping')),
+                  DataColumn(label: Text('สถานะ')),
+                  DataColumn(label: Text('ปัญหา')),
+                ],
+                rows: [
+                  for (var i = 0; i < p.variants.length; i++)
+                    DataRow(
+                      cells: [
+                        DataCell(Text('${i + 1}', style: const TextStyle(color: Pal.muted))),
+                        DataCell(Text(_sellerSku(p.variants[i]), style: const TextStyle(fontWeight: FontWeight.w600))),
+                        DataCell(Text(p.variants[i].modelId.isEmpty ? '-' : p.variants[i].modelId)),
+                        DataCell(Text(p.variants[i].option.isEmpty ? '-' : p.variants[i].option, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                        DataCell(Text(baht.format(p.variants[i].price))),
+                        DataCell(Text('${p.variants[i].stock}')),
+                        DataCell(Text(p.variants[i].sapItemCode.isEmpty ? '-' : p.variants[i].sapItemCode)),
+                        DataCell(_mapPill(p.variants[i].mapped)),
+                        DataCell(productPill(p.variants[i].status)),
+                        DataCell(productProblemCell(p.variants[i].problem)),
                       ],
                     ),
-                  ),
-                ),
-              );
-            },
+                ],
+              ),
+            ),
           ),
         const Divider(height: 1),
       ],
@@ -556,8 +603,8 @@ class _ProductBlockState extends State<_ProductBlock> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: SizedBox(
-        width: 44,
-        height: 44,
+        width: 56,
+        height: 56,
         child: url.isEmpty || url == '-'
             ? Container(color: const Color(0xFFEEF2F7), child: const Icon(Icons.image_outlined, size: 20, color: Pal.faint))
             : Image.network(

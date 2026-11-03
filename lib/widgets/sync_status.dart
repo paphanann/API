@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../core/format.dart';
 import '../stores/stores.dart';
 
 OverlayEntry? _toast;
@@ -80,4 +81,72 @@ void _showSyncToast(BuildContext context) {
     entry.remove();
     _toast = null;
   });
+}
+
+class LastSyncActions extends StatelessWidget {
+  const LastSyncActions({
+    super.key,
+    required this.lastSync,
+    required this.syncing,
+    required this.onSync,
+  });
+
+  final DateTime? lastSync;
+  final bool syncing;
+  final VoidCallback? onSync;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        LastSyncLabel(lastSync: lastSync),
+        const SizedBox(height: 6),
+        LastSyncButton(syncing: syncing, onSync: onSync),
+      ],
+    );
+  }
+}
+
+class LastSyncLabel extends StatelessWidget {
+  const LastSyncLabel({super.key, required this.lastSync});
+
+  final DateTime? lastSync;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      lastSync == null ? 'Sync ล่าสุด : -' : 'Sync ล่าสุด : ${dtFmt.format(lastSync!)}',
+      style: const TextStyle(color: Pal.muted, fontSize: 13),
+    );
+  }
+}
+
+class LastSyncButton extends StatelessWidget {
+  const LastSyncButton({super.key, required this.syncing, required this.onSync});
+
+  final bool syncing;
+  final VoidCallback? onSync;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: OutlinedButton.icon(
+        onPressed: syncing ? null : onSync,
+        icon: syncing
+            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.sync_rounded, size: 18),
+        label: Text(syncing ? 'กำลัง Sync...' : 'Sync Now'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Pal.text,
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Pal.line),
+          shape: const StadiumBorder(),
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+        ),
+      ),
+    );
+  }
 }

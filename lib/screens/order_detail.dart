@@ -81,30 +81,68 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          Panel(
-            title: 'ข้อมูลคำสั่งซื้อ',
-            child: Column(
-              children: [
-                kv('Marketplace', ChannelLabel(channel: o.channel)),
-                kv('Order ID (Marketplace)', Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600))),
-                kv('วันที่สั่งซื้อ', Text(dtFmt.format(o.createdAt), style: const TextStyle(fontWeight: FontWeight.w600))),
-                kv('ช่องทางชำระเงิน', Text(o.payment.isEmpty || o.payment == '-' ? '-' : o.payment, style: const TextStyle(fontWeight: FontWeight.w600))),
-                kv('สถานะการจัดส่ง', Text(o.shippingStatus, style: const TextStyle(fontWeight: FontWeight.w600))),
-                kv(
-                  'ขนส่ง',
-                  Row(
-                    children: [
-                      const Icon(Icons.local_shipping_outlined, size: 18, color: Pal.muted),
-                      const SizedBox(width: 6),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 900;
+              final customer = Panel(
+                expand: wide,
+                title: 'ข้อมูลลูกค้า',
+                child: Column(
+                  children: [
+                    kv('ชื่อลูกค้า', Text(o.customer, style: const TextStyle(fontWeight: FontWeight.w600))),
+                    kv('เบอร์โทร', Text(o.phone, style: const TextStyle(fontWeight: FontWeight.w600))),
+                    kv('ที่อยู่จัดส่ง', Text(o.address, style: const TextStyle(fontWeight: FontWeight.w600))),
+                  ],
+                ),
+              );
+              final shipName = o.shipping.trim();
+              final order = Panel(
+                expand: wide,
+                title: 'ข้อมูลคำสั่งซื้อ',
+                child: Column(
+                  children: [
+                    kv('Marketplace', ChannelLabel(channel: o.channel)),
+                    kv('Order ID (Marketplace)', Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600))),
+                    kv('วันที่สั่งซื้อ', Text(dtFmt.format(o.createdAt), style: const TextStyle(fontWeight: FontWeight.w600))),
+                    kv('ช่องทางชำระเงิน', Text(o.payment.isEmpty || o.payment == '-' ? '-' : o.payment, style: const TextStyle(fontWeight: FontWeight.w600))),
+                    kv('สถานะการจัดส่ง', Text(o.shippingStatus, style: const TextStyle(fontWeight: FontWeight.w600))),
+                    kv(
+                      'ขนส่ง',
+                      Row(
+                        children: [
+                          const Icon(Icons.local_shipping_outlined, size: 18, color: Pal.muted),
+                          const SizedBox(width: 6),
+                          Text(
+                            shipName.isEmpty || shipName == '-' ? 'ยังไม่ระบุ' : shipName,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    kv(
+                      'เลขพัสดุ',
                       Text(
-                        o.shipping.trim().isEmpty || o.shipping.trim() == '-' ? 'ยังไม่ระบุ' : o.shipping.trim(),
+                        o.trackingNo.trim().isEmpty || o.trackingNo == '-' ? '-' : o.trackingNo,
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              );
+              if (!wide) {
+                return Column(children: [customer, const SizedBox(height: 16), order]);
+              }
+              return IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: customer),
+                    const SizedBox(width: 16),
+                    Expanded(child: order),
+                  ],
+                ),
+              );
+            },
           ),
           const SizedBox(height: 16),
           Panel(

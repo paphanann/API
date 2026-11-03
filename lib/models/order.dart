@@ -32,6 +32,7 @@ class Order {
     required this.payment,
     required this.shipping,
     this.shippingStatus = '',
+    this.trackingNo = '',
     required this.lines,
     this.shopId = '',
     this.shopName = '',
@@ -43,6 +44,9 @@ class Order {
     this.sapDocNum,
     this.syncStatus = '',
     this.lastSyncedAt,
+    this.itemCount = 0,
+    this.transferStatus = '',
+    this.transferDocNum = '',
   });
 
   factory Order.fromApi(Map<String, dynamic> m, {Channel? fallbackChannel, bool listOnly = false}) {
@@ -54,7 +58,7 @@ class Order {
       return Order(
         id: pickStr(m, ['MarketplaceOrderId', 'marketplaceOrderId', 'OrderNo', 'orderNo', 'order_sn', 'OrderId', 'order_id', 'Id', 'id'], or: '-'),
         channel: channel,
-        customer: '-',
+        customer: _contactName(m),
         phone: '-',
         address: '-',
         createdAt: pickTime(m, ['OrderDate', 'orderDate', 'CreatedAt', 'createdAt', 'CreateTime', 'order_create_time', 'Date']) ?? DateTime.now(),
@@ -82,6 +86,9 @@ class Order {
         }(),
         syncStatus: pickStr(m, ['SyncStatus', 'syncStatus'], or: ''),
         lastSyncedAt: pickTime(m, ['LastSyncedAt', 'lastSyncedAt', 'SyncedAt', 'syncedAt']),
+        itemCount: pickInt(m, ['itemCount', 'ItemCount', 'lineCount', 'LineCount'], or: 0),
+        transferStatus: pickStr(m, ['transferStatus', 'TransferStatus'], or: ''),
+        transferDocNum: pickStr(m, ['transferDocNum', 'TransferDocNum', 'transferDoc', 'TransferDoc'], or: ''),
       );
     }
     final lines = <OrderLine>[];
@@ -136,6 +143,7 @@ class Order {
         'Status',
         'status',
       ], or: '')),
+      trackingNo: _trackingNo(m),
       lines: lines,
       shopId: _firstPlain(bags, ['ShopId', 'shopId', 'shop_id', 'SellerId', 'sellerId', 'seller_id', 'SellerID', 'OpenId', 'openId']),
       shopName: _firstPlain(bags, ['ShopName', 'shopName', 'shop_name', 'SellerName', 'sellerName', 'seller_name', 'StoreName', 'storeName']),
@@ -198,6 +206,9 @@ class Order {
       }(),
       syncStatus: pickStr(m, ['SyncStatus', 'syncStatus'], or: ''),
       lastSyncedAt: pickTime(m, ['LastSyncedAt', 'lastSyncedAt', 'SyncedAt', 'syncedAt']),
+      itemCount: pickInt(m, ['itemCount', 'ItemCount', 'lineCount', 'LineCount'], or: lines.length),
+      transferStatus: pickStr(m, ['transferStatus', 'TransferStatus'], or: ''),
+      transferDocNum: pickStr(m, ['transferDocNum', 'TransferDocNum', 'transferDoc', 'TransferDoc'], or: ''),
     );
   }
 
@@ -211,6 +222,7 @@ class Order {
   final String payment;
   final String shipping;
   final String shippingStatus;
+  final String trackingNo;
   final List<OrderLine> lines;
   final String shopId;
   final String shopName;
@@ -222,6 +234,9 @@ class Order {
   final String? sapDocNum;
   final String syncStatus;
   final DateTime? lastSyncedAt;
+  final int itemCount;
+  final String transferStatus;
+  final String transferDocNum;
 
   double get lineSum {
     var sum = 0.0;
@@ -408,6 +423,73 @@ List<Map<String, dynamic>> _amountBags(Map<String, dynamic> m) {
   return bags;
 }
 
+const _trackingKeys = [
+  'TrackingNumber',
+  'trackingNumber',
+  'tracking_number',
+  'TrackingNo',
+  'trackingNo',
+  'tracking_no',
+  'TrackingCode',
+  'trackingCode',
+  'tracking_code',
+  'TrackingId',
+  'trackingId',
+  'tracking_id',
+  'PackageNumber',
+  'packageNumber',
+  'package_number',
+  'ParcelNumber',
+  'parcelNumber',
+  'WaybillNumber',
+  'waybillNumber',
+  'waybill_number',
+  'Waybill',
+  'waybill',
+  'AWB',
+  'awb',
+  'AwbNumber',
+];
+
+String _trackingNo(Map<String, dynamic> m) {
+  final found = <String>{};
+  void take(Map<String, dynamic> bag) {
+    final s = pickPlainStr(bag, _trackingKeys, or: '');
+    if (s.isNotEmpty && s != '-') found.add(s);
+    final tracking = pick(bag, ['Tracking', 'tracking']);
+    if (tracking is String) {
+      final t = tracking.trim();
+      if (t.isNotEmpty && t != '-') found.add(t);
+    } else if (tracking is Map) {
+      take(Map<String, dynamic>.from(tracking));
+    }
+  }
+
+  take(m);
+  for (final key in [
+    'Logistics',
+    'logistics',
+    'Package',
+    'package',
+    'Shipping',
+    'shipping',
+    'TrackingInfo',
+    'trackingInfo',
+    'Fulfillment',
+    'fulfillment',
+  ]) {
+    final v = pick(m, [key]);
+    if (v is Map) take(Map<String, dynamic>.from(v));
+  }
+  for (final key in ['Packages', 'packages', 'package_list', 'PackageList', 'packageList', 'Trackings', 'trackings']) {
+    for (final row in pickList(m, [key])) {
+      if (row is Map) take(Map<String, dynamic>.from(row));
+    }
+  }
+  if (found.isEmpty) return '';
+  return found.join(', ');
+}
+
 String _shippingStatus(String raw) {
   final t = raw.trim();
   if (t.isEmpty || t == '-') return 'รอจัดส่ง';
@@ -427,9 +509,16 @@ String _shippingStatus(String raw) {
 }
 
 OrderStatus _orderStatus(String raw) {
-  final v = raw.toLowerCase();
-  if (v.contains('cancel')) return OrderStatus.cancelled;
-  if (v.contains('success') || v.contains('complete') || v.contains('ship') || v.contains('deliver') || v.contains('paid')) {
+  final v = raw.trim().toLowerCase().replaceAll(RegExp(r'[\s-]+'), '_');
+  if (v.contains('return') || v.contains('refund') || v.contains('shipped_back') || v.contains('คืนสินค้า') || v.contains('คืนเงิน') || v.contains('จัดส่งไม่สำเร็จ')) {
+    return OrderStatus.returned;
+  }
+  if (v.contains('cancel') || v.contains('void')) return OrderStatus.cancelled;
+  if (v == 'unpaid' || v.contains('unpaid') || v.contains('รอชำระ')) return OrderStatus.unpaid;
+  if (v == 'shipping' || v == 'shipped' || v == 'in_transit' || v == 'to_confirm_receive' || v == 'partially_shipping' || v.contains('กำลังจัดส่ง')) {
+    return OrderStatus.shipping;
+  }
+  if (v == 'success' || v == 'completed' || v == 'complete' || v == 'delivered' || v == 'confirmed' || v.contains('สำเร็จ')) {
     return OrderStatus.success;
   }
   return OrderStatus.pending;

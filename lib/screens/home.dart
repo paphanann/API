@@ -5,9 +5,11 @@ import 'package:go_router/go_router.dart';
 
 import '../app/session.dart';
 import '../app/theme.dart';
+import '../core/api.dart';
 import '../core/format.dart';
 import '../models/models.dart';
 import '../stores/stores.dart';
+import '../widgets/sync_status.dart';
 import '../widgets/ui.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -24,6 +26,8 @@ class _HomeScreenState extends State<HomeScreen> {
     OrderStore.instance,
     ProductStore.instance,
     SyncLogStore.instance,
+    TransferStore.instance,
+    MarketplaceSyncStore.instance,
     Session.instance,
   ]);
 
@@ -47,6 +51,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _month = 0;
   int _year = 0;
   String _ch = 'all';
+  bool _sapOn = false;
+  DateTime? _sapLast;
 
   @override
   void initState() {
@@ -60,7 +66,54 @@ class _HomeScreenState extends State<HomeScreen> {
       OrderStore.instance.load();
       ProductStore.instance.load();
       SyncLogStore.instance.load();
+      TransferStore.instance.load();
+      _loadSap();
     });
+  }
+
+  Future<void> _loadSap() async {
+    try {
+      final s = await Api.getSettings();
+      if (!mounted) return;
+      setState(() {
+        _sapOn = s.database.trim().isNotEmpty && (s.host.trim().isNotEmpty || s.endpoint.trim().isNotEmpty);
+        _sapLast = s.erpLastChecked;
+      });
+    } catch (_) {}
+  }
+
+  DateTime? _lastSyncAt() {
+    DateTime? last;
+    for (final s in ShopStore.instance.realShops) {
+      final t = s.lastSync;
+      if (t != null && (last == null || t.isAfter(last))) last = t;
+    }
+    for (final l in SyncLogStore.instance.logs) {
+      if (l.status != SyncStatus.success && l.status != SyncStatus.partial) continue;
+      if (last == null || l.time.isAfter(last)) last = l.time;
+    }
+    return last;
+  }
+
+  Future<void> _syncNow() async {
+    try {
+      await MarketplaceSyncStore.instance.syncNow(force: false);
+      await Future.wait([
+        OrderStore.instance.load(),
+        ShopStore.instance.load(),
+        SyncLogStore.instance.load(),
+        ProductStore.instance.load(),
+        TransferStore.instance.load(),
+        DashStore.instance.load(),
+      ]);
+      if (!mounted) return;
+      await showSystemStatusSnack(context, reload: false);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
+      );
+    }
   }
 
   DateTime _day(DateTime t) => DateTime(t.year, t.month, t.day);
@@ -112,8 +165,12 @@ class _HomeScreenState extends State<HomeScreen> {
         }).toList()
           ..sort((a, b) => b.time.compareTo(a.time));
         final d = DashData.fromLive(orders: orders, shops: scopedShops, until: _to);
-        final connected = scopedShops.where((s) => s.connected).length;
-        final shopTotal = scopedShops.isEmpty ? 1 : scopedShops.length;
+        final liveChannels = {
+          for (final s in scopedShops)
+            if (s.isReal) s.channel,
+        };
+        final connectedN = liveChannels.length + (_sapOn ? 1 : 0);
+        const shopTotal = 4;
         final orderHint = _weekHint(d);
         SyncRow? lastOkLog;
         for (final l in logs) {
@@ -122,11 +179,13 @@ class _HomeScreenState extends State<HomeScreen> {
             break;
           }
         }
-        final problemPlatforms = logs
-            .where((l) => l.status == SyncStatus.error)
-            .map((l) => l.channel)
-            .toSet()
-            .length;
+        final okPlatforms = <Channel>{
+          for (final l in logs)
+            if (l.status == SyncStatus.success || l.status == SyncStatus.partial) l.channel,
+        };
+        final errorLogs = logs.where((l) => l.status == SyncStatus.error).toList();
+        final waitSo = orders.where((o) => _needsSo(o)).length;
+        final waitTr = orders.where((o) => _needsTr(o)).length;
         final years = {
           DateTime.now().year,
           DateTime.now().year - 1,
@@ -142,18 +201,13 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               LayoutBuilder(
                 builder: (context, box) {
-                  final title = const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('หน้าหลัก', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-                      SizedBox(height: 4),
-                      Text('ภาพรวมระบบเชื่อมต่อ Marketplace และ SAP', style: TextStyle(color: Pal.muted, fontSize: 13)),
-                    ],
-                  );
+                  const title = Text('หน้าหลัก', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800));
+                  final syncStore = MarketplaceSyncStore.instance;
                   final filters = Wrap(
                     spacing: 10,
                     runSpacing: 10,
                     alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.end,
                     children: [
                       DateRangeField(from: _from, to: _to, onTap: _pickRange),
                       Drop<int>(
@@ -186,12 +240,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                         onChanged: (v) => setState(() => _ch = v ?? 'all'),
                       ),
+                      LastSyncButton(syncing: syncStore.syncing, onSync: _syncNow),
+                    ],
+                  );
+                  final tools = Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      LastSyncLabel(lastSync: _lastSyncAt()),
+                      const SizedBox(height: 4),
+                      filters,
                     ],
                   );
                   if (box.maxWidth < 1100) {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [title, const SizedBox(height: 14), filters],
+                      children: [title, const SizedBox(height: 14), tools],
                     );
                   }
                   return Row(
@@ -199,7 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       title,
                       const SizedBox(width: 16),
-                      Expanded(child: filters),
+                      Expanded(child: tools),
                     ],
                   );
                 },
@@ -232,52 +295,69 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     StatCard(
                       title: 'Sync สำเร็จล่าสุด',
-                      value: lastOkLog == null ? '—' : timeFmt.format(lastOkLog.time),
+                      value: lastOkLog == null ? '—' : dtFmt.format(lastOkLog.time),
                       icon: Icons.sync_rounded,
                       color: const Color(0xFF0D9488),
                       hint: Text(
-                        lastOkLog == null ? 'ยังไม่มีประวัติ' : lastOkLog.channel.shortLabel,
-                        style: TextStyle(color: lastOkLog == null ? Pal.muted : Pal.ok, fontSize: 12, fontWeight: FontWeight.w600),
+                        okPlatforms.isEmpty ? 'ยังไม่มีประวัติ' : [for (final c in Channel.values) if (okPlatforms.contains(c)) c.shortLabel].join(' / '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: okPlatforms.isEmpty ? Pal.muted : Pal.ok, fontSize: 12, fontWeight: FontWeight.w600),
                       ),
                     ),
                     StatCard(
                       title: 'มีปัญหาการซิงก์',
-                      value: nFmt.format(problemPlatforms),
+                      value: nFmt.format(errorLogs.length),
                       icon: Icons.warning_amber_rounded,
                       color: const Color(0xFFF97316),
                       hint: Text(
-                        problemPlatforms > 0 ? 'แพลตฟอร์มที่ error' : 'ไม่มีปัญหา',
-                        style: TextStyle(color: problemPlatforms > 0 ? Pal.warn : Pal.ok, fontSize: 12, fontWeight: FontWeight.w600),
+                        errorLogs.isNotEmpty ? 'แพลตฟอร์มที่ error' : 'ไม่มีปัญหา',
+                        style: TextStyle(color: errorLogs.isNotEmpty ? Pal.warn : Pal.ok, fontSize: 12, fontWeight: FontWeight.w600),
                       ),
                     ),
                     StatCard(
                       title: 'เชื่อมต่อแล้ว',
-                      value: '$connected/$shopTotal',
+                      value: '$connectedN/$shopTotal',
                       icon: Icons.power_outlined,
                       color: Pal.ok,
                       hint: Text(
-                        connected == shopTotal && shopTotal > 0 ? 'ครบทุกแพลตฟอร์ม' : 'รอเชื่อมต่อ',
-                        style: TextStyle(color: connected == shopTotal && shopTotal > 0 ? Pal.ok : Pal.warn, fontSize: 12, fontWeight: FontWeight.w600),
+                        connectedN >= shopTotal ? 'ครบทุกแพลตฟอร์ม' : 'รอเชื่อมต่อ',
+                        style: TextStyle(color: connectedN >= shopTotal ? Pal.ok : Pal.warn, fontSize: 12, fontWeight: FontWeight.w600),
                       ),
                     ),
+                    StatCard(
+                      title: 'รอสร้าง SO',
+                      value: nFmt.format(waitSo),
+                      icon: Icons.description_outlined,
+                      color: const Color(0xFF2563EB),
+                      hint: const Text('รอดำเนินการใน SAP', style: TextStyle(color: Pal.muted, fontSize: 12, fontWeight: FontWeight.w600)),
+                    ),
+                    StatCard(
+                      title: 'รอสร้าง TR',
+                      value: nFmt.format(waitTr),
+                      icon: Icons.inventory_2_outlined,
+                      color: const Color(0xFF7C3AED),
+                      hint: const Text('รอโอนสินค้าลงออนไลน์', style: TextStyle(color: Pal.muted, fontSize: 12, fontWeight: FontWeight.w600)),
+                    ),
                   ];
-                  if (c.maxWidth >= 1100) {
+                  if (c.maxWidth >= 1280) {
                     return IntrinsicHeight(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           for (var i = 0; i < cards.length; i++) ...[
-                            if (i > 0) const SizedBox(width: 16),
+                            if (i > 0) const SizedBox(width: 10),
                             Expanded(child: cards[i]),
                           ],
                         ],
                       ),
                     );
                   }
-                  final w = c.maxWidth >= 720 ? (c.maxWidth - 16) / 2 : c.maxWidth;
+                  final cols = c.maxWidth >= 900 ? 3 : 2;
+                  final w = (c.maxWidth - (cols - 1) * 10) / cols;
                   return Wrap(
-                    spacing: 16,
-                    runSpacing: 16,
+                    spacing: 10,
+                    runSpacing: 10,
                     children: [for (final card in cards) SizedBox(width: w, child: card)],
                   );
                 },
@@ -310,9 +390,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             ? null
                             : TextButton(
                                 onPressed: () => context.go('/connections'),
-                                child: const Text('จัดการการเชื่อมต่อ'),
+                                child: const Text('จัดการการเชื่อมต่อ →'),
                               ),
-                        child: _ConnList(shops),
+                        child: _ConnList(shops: shops, sapOn: _sapOn, sapLast: _sapLast),
                       );
                   if (c.maxWidth < 960) {
                     return Column(children: [trend(expand: false), const SizedBox(height: 16), conns(expand: false)]);
@@ -344,7 +424,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: const Text('ดูทั้งหมด →'),
                     ),
                     pad: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    child: _RecentOrders(orders.take(4).toList()),
+                    child: _RecentOrders(orders.take(5).toList()),
                   );
                   final sync = Panel(
                     title: 'Sync Log ล่าสุด',
@@ -390,6 +470,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+bool _skipped(Order o) => o.status == OrderStatus.cancelled || o.status == OrderStatus.returned;
+
+bool _hasSo(Order o) => o.sapDocNum != null && o.sapDocNum!.trim().isNotEmpty;
+
+bool _hasTr(Order o) {
+  final st = o.transferStatus.toLowerCase();
+  if (st.contains('success') || st.contains('done') || st.contains('complete') || st.contains('สำเร็จ')) return true;
+  if (o.transferDocNum.trim().isNotEmpty) return true;
+  final keys = <String>{
+    o.id,
+    if (_hasSo(o)) o.sapDocNum!,
+    if (_hasSo(o)) 'SO-${o.sapDocNum}',
+  };
+  for (final t in TransferStore.instance.rows) {
+    if (keys.contains(t.id) || keys.contains(t.referenceNo)) return true;
+    final parts = <String>{
+      ...t.salesOrderIds,
+      ...t.referenceNo.split(RegExp(r'[,;]+')).map((part) => part.trim()).where((part) => part.isNotEmpty),
+    };
+    if (parts.any(keys.contains)) return true;
+  }
+  return false;
+}
+
+bool _needsSo(Order o) => !_skipped(o) && !_hasSo(o);
+
+bool _needsTr(Order o) => !_skipped(o) && _hasSo(o) && !_hasTr(o);
+
 String? _weekHint(DashData d) {
   final n = [d.shopeeWeek.length, d.tiktokWeek.length, d.lazadaWeek.length].fold<int>(0, math.max);
   if (n < 6) return null;
@@ -406,54 +514,113 @@ String? _weekHint(DashData d) {
 }
 
 class _ConnList extends StatelessWidget {
-  const _ConnList(this.shops);
+  const _ConnList({required this.shops, required this.sapOn, this.sapLast});
 
   final List<ShopConn> shops;
+  final bool sapOn;
+  final DateTime? sapLast;
 
   @override
   Widget build(BuildContext context) {
     final rows = [
       for (final c in Channel.values)
-        shops.where((s) => s.channel == c).followedBy([ShopConn.empty(c)]).first,
+        shops.where((s) => s.channel == c && s.isReal).followedBy([ShopConn.empty(c)]).first,
     ];
     return Column(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         for (var i = 0; i < rows.length; i++) ...[
           if (i > 0) const Divider(height: 1),
-          _connRow(rows[i]),
+          _shopRow(context, rows[i]),
         ],
+        const Divider(height: 1),
+        _sapRow(context),
       ],
     );
   }
 
-  Widget _connRow(ShopConn s) {
-    return Row(
-      children: [
-        ChannelDot(channel: s.channel, size: 36),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(s.channel.label, style: const TextStyle(fontWeight: FontWeight.w700)),
+  void _openShop(BuildContext context, ShopConn s) {
+    if (!s.isReal) {
+      context.go('/connections');
+      return;
+    }
+    context.go('/connections/${s.channel.name}/${Uri.encodeComponent(s.shopId)}');
+  }
+
+  Widget _shopRow(BuildContext context, ShopConn s) {
+    final expired = s.needsReauth;
+    final label = s.connected ? 'เชื่อมต่อแล้ว' : (expired ? 'token หมดอายุ' : 'ยังไม่เชื่อมต่อ');
+    final color = s.connected ? Pal.ok : (expired ? Pal.warn : Pal.err);
+    return _row(
+      leading: ChannelDot(channel: s.channel, size: 36),
+      title: s.channel.label,
+      status: label,
+      statusColor: color,
+      sync: s.lastSync,
+      onOpen: () => _openShop(context, s),
+    );
+  }
+
+  Widget _sapRow(BuildContext context) {
+    return _row(
+      leading: Container(
+        width: 36,
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Pal.primary,
+          borderRadius: BorderRadius.circular(10),
         ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              s.connected ? 'เชื่อมต่อแล้ว' : (s.needsReauth ? 'ต้องเชื่อมต่อใหม่' : 'ยังไม่เชื่อมต่อ'),
-              style: TextStyle(
-                color: s.connected ? Pal.ok : Pal.err,
-                fontWeight: FontWeight.w700,
-                fontSize: 13,
+        child: const Text('SAP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 10, height: 1)),
+      ),
+      title: 'SAP B1',
+      status: sapOn ? 'เชื่อมต่อแล้ว' : 'ยังไม่เชื่อมต่อ',
+      statusColor: sapOn ? Pal.ok : Pal.err,
+      sync: sapLast,
+      onOpen: () => context.go('/settings'),
+    );
+  }
+
+  Widget _row({
+    required Widget leading,
+    required String title,
+    required String status,
+    required Color statusColor,
+    required DateTime? sync,
+    required VoidCallback onOpen,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          leading,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(status, style: TextStyle(color: statusColor, fontWeight: FontWeight.w700, fontSize: 13)),
+              const SizedBox(height: 2),
+              Text(
+                'Sync ล่าสุด: ${sync == null ? '-' : dtFmt.format(sync)}',
+                style: const TextStyle(color: Pal.muted, fontSize: 11),
               ),
+            ],
+          ),
+          if (!Session.instance.isUserRole)
+            PopupMenuButton<String>(
+              padding: EdgeInsets.zero,
+              tooltip: '',
+              onSelected: (_) => onOpen(),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'open', child: Text('ดูรายละเอียด')),
+              ],
+              icon: const Icon(Icons.more_horiz, color: Pal.faint),
             ),
-            const SizedBox(height: 2),
-            Text(
-              'Last Sync: ${s.lastSync == null ? '-' : formatDt(s.lastSync)}',
-              style: const TextStyle(color: Pal.muted, fontSize: 11),
-            ),
-          ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -474,7 +641,7 @@ class _RecentOrders extends StatelessWidget {
     }
     return Column(
       children: [
-        const _MiniHead(cells: ['เลขที่คำสั่งซื้อ', 'แพลตฟอร์ม', 'วันที่', 'ยอดรวม', 'สถานะออเดอร์', 'Sync'], flex: _flex),
+        const _MiniHead(cells: ['เลขที่คำสั่งซื้อ', 'แพลตฟอร์ม', 'วันที่', 'ยอดรวม', 'สถานะออเดอร์', 'SAP'], flex: _flex),
         for (final o in orders)
           _MiniRow(
             flex: _flex,
@@ -493,25 +660,38 @@ class _RecentOrders extends StatelessWidget {
               Text(o.channel.shortLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
               Text(dayFmt.format(o.createdAt), maxLines: 1, style: const TextStyle(fontSize: 12, color: Pal.muted)),
               Text(baht.format(o.total), maxLines: 1, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-              _dotStatus(o.status == OrderStatus.success
-                  ? (Pal.ok, 'สำเร็จ')
-                  : o.status == OrderStatus.cancelled
-                      ? (Pal.err, 'ยกเลิก')
-                      : (Pal.warn, 'รอดำเนินการ')),
-              _orderSync(o),
+              _dotStatus(_orderDot(o.status)),
+              _orderSap(o),
             ],
           ),
       ],
     );
   }
 
-  Widget _orderSync(Order o) {
-    final synced = o.sapDocNum != null && o.sapDocNum!.isNotEmpty;
-    if (synced) return _dotStatus((Pal.ok, 'สำเร็จ'));
-    if (o.status == OrderStatus.cancelled) {
+  (Color, String) _orderDot(OrderStatus status) {
+    switch (status) {
+      case OrderStatus.unpaid:
+        return (Pal.primary, 'รอชำระเงิน');
+      case OrderStatus.pending:
+        return (Pal.warn, 'รอดำเนินการ');
+      case OrderStatus.shipping:
+        return (const Color(0xFF0369A1), 'กำลังจัดส่ง');
+      case OrderStatus.success:
+        return (Pal.ok, 'สำเร็จ');
+      case OrderStatus.cancelled:
+        return (Pal.err, 'ยกเลิก');
+      case OrderStatus.returned:
+        return (const Color(0xFF7C3AED), 'คืนสินค้า/คืนเงิน');
+    }
+  }
+
+  Widget _orderSap(Order o) {
+    if (_skipped(o)) {
       return const Text('—', style: TextStyle(color: Pal.muted, fontSize: 12));
     }
-    return _dotStatus((Pal.warn, 'รอดำเนินการ'));
+    if (_needsSo(o)) return waitSoPill(size: 11);
+    if (_needsTr(o)) return waitTrPill(size: 11);
+    return soCreatedPill(size: 11);
   }
 }
 

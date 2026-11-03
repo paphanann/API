@@ -49,7 +49,6 @@ class _FillTableState extends State<FillTable> {
             scrollbars: false,
             dragDevices: {
               PointerDeviceKind.touch,
-              PointerDeviceKind.mouse,
               PointerDeviceKind.trackpad,
               PointerDeviceKind.stylus,
             },

@@ -14,9 +14,11 @@ class Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final body = Padding(padding: pad ?? const EdgeInsets.fromLTRB(20, 0, 20, 20), child: child);
+    final content = expand ? Expanded(child: body) : body;
     return Container(
       width: double.infinity,
       clipBehavior: Clip.antiAlias,
+      alignment: expand ? Alignment.topLeft : null,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
@@ -40,7 +42,7 @@ class Panel extends StatelessWidget {
                 ],
               ),
             ),
-          if (expand) Expanded(child: ClipRect(child: body)) else body,
+          content,
         ],
       ),
     );

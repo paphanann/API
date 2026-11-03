@@ -1,4 +1,4 @@
-enum OrderStatus { pending, success, cancelled }
+enum OrderStatus { unpaid, pending, shipping, success, cancelled, returned }
 
 enum ProductStatus { active, inactive, draft }
 

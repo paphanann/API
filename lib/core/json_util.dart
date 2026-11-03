@@ -24,19 +24,12 @@ String pickStr(Map<String, dynamic> m, List<String> keys, {String or = '-'}) {
   return s;
 }
 
-bool isMaskedText(String raw) {
-  final t = raw.trim();
-  if (t.isEmpty) return false;
-  return !RegExp(r'[A-Za-z0-9ก-๙]').hasMatch(t) && RegExp(r'[*•]').hasMatch(t);
-}
-
 String pickPlainStr(Map<String, dynamic> m, List<String> keys, {String or = '-'}) {
   for (final want in keys) {
     final v = pick(m, [want]);
     if (v == null || v is Map || v is List) continue;
     final s = v.toString().trim();
     if (s.isEmpty || s == '-' || s.toLowerCase() == 'null' || s.toLowerCase() == 'undefined') continue;
-    if (isMaskedText(s)) continue;
     return s;
   }
   return or;
@@ -112,6 +105,7 @@ DateTime? pickTime(Map<String, dynamic> m, List<String> keys) {
   if (v == null) return null;
 
   if (v is DateTime) {
+    if (_isCalendarMidnight(v)) return DateTime(v.year, v.month, v.day);
     return v.isUtc ? bangkokWall(v) : v;
   }
 
@@ -123,10 +117,31 @@ DateTime? pickTime(Map<String, dynamic> m, List<String> keys) {
     } else if (n > 1000000000) {
       dt = DateTime.fromMillisecondsSinceEpoch(n * 1000, isUtc: true);
     }
-    return dt == null ? null : bangkokWall(dt);
+    if (dt == null) return null;
+    if (_isCalendarMidnight(dt)) return DateTime(dt.year, dt.month, dt.day);
+    return bangkokWall(dt);
   }
 
   final raw = v.toString().trim();
+  final msJson = RegExp(r'^/Date\((-?\d+)(?:[+-]\d{4})?\)/$').firstMatch(raw);
+  if (msJson != null) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(int.parse(msJson.group(1)!), isUtc: true);
+    if (_isCalendarMidnight(dt)) return DateTime(dt.toUtc().year, dt.toUtc().month, dt.toUtc().day);
+    return bangkokWall(dt);
+  }
+
+  // ฟิลด์วันที่อย่างเดียว เช่น 2026-11-02 หรือ 2026-11-02T00:00:00Z — อย่าบวก +7 จนเป็น 07:00
+  final dateOnly = RegExp(
+    r'^(\d{4})-(\d{2})-(\d{2})(?:[T ]00:00:00(?:\.\d+)?(?:Z|[+-](?:00:00|07:00))?)?$',
+  ).firstMatch(raw);
+  if (dateOnly != null) {
+    return DateTime(
+      int.parse(dateOnly.group(1)!),
+      int.parse(dateOnly.group(2)!),
+      int.parse(dateOnly.group(3)!),
+    );
+  }
+
   final dt = DateTime.tryParse(raw);
   if (dt == null) return null;
 
@@ -134,6 +149,10 @@ DateTime? pickTime(Map<String, dynamic> m, List<String> keys) {
   final hasOffset = RegExp(r'(?:Z|[+-]\d{2}:\d{2})$').hasMatch(raw);
   if (hasOffset) return bangkokWall(dt);
   return dt;
+}
+
+bool _isCalendarMidnight(DateTime t) {
+  return t.hour == 0 && t.minute == 0 && t.second == 0;
 }
 
 List<dynamic> pickList(Map<String, dynamic> m, List<String> keys) {

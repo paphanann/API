@@ -3,22 +3,28 @@ import 'package:flutter/material.dart';
 import '../app/theme.dart';
 import '../models/models.dart';
 
-Widget pill(String text, Color fg, Color bg) {
+Widget pill(String text, Color fg, Color bg, {double size = 12}) {
   return Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
     decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(99)),
-    child: Text(text, style: TextStyle(color: fg, fontSize: 12, fontWeight: FontWeight.w600)),
+    child: Text(text, style: TextStyle(color: fg, fontSize: size, fontWeight: FontWeight.w600)),
   );
 }
 
 Widget orderPill(OrderStatus s) {
   switch (s) {
+    case OrderStatus.unpaid:
+      return pill('รอชำระเงิน', const Color(0xFF1D4ED8), Pal.infoBg);
     case OrderStatus.pending:
       return pill('รอดำเนินการ', const Color(0xFFB45309), Pal.warnBg);
+    case OrderStatus.shipping:
+      return pill('กำลังจัดส่ง', const Color(0xFF0369A1), const Color(0xFFE0F2FE));
     case OrderStatus.success:
       return pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg);
     case OrderStatus.cancelled:
       return pill('ยกเลิก', const Color(0xFFB91C1C), Pal.errBg);
+    case OrderStatus.returned:
+      return pill('คืนสินค้า/คืนเงิน', const Color(0xFF7C3AED), const Color(0xFFEDE9FE));
   }
 }
 
@@ -47,6 +53,30 @@ Widget orderSyncPill(String? raw) {
     return pill('รอ SAP', const Color(0xFFB45309), Pal.warnBg);
   }
   return pill(raw!, Pal.muted, const Color(0xFFF3F4F6));
+}
+
+Widget waitSoPill({double size = 12}) => pill('รอสร้าง SO', const Color(0xFFC2410C), const Color(0xFFFFEDD5), size: size);
+Widget waitTrPill({double size = 12}) => pill('รอสร้าง TR', const Color(0xFFC2410C), const Color(0xFFFFEDD5), size: size);
+Widget soCreatedPill({double size = 12}) => pill('สร้าง SO แล้ว', const Color(0xFF15803D), Pal.okBg, size: size);
+
+Widget soReadyPill({double size = 12}) => pill('พร้อมสร้าง', const Color(0xFFB45309), Pal.warnBg, size: size);
+Widget soSentPill({double size = 12}) => pill('ส่ง SAP', const Color(0xFFC2410C), const Color(0xFFFFEDD5), size: size);
+Widget soDonePill({double size = 12}) => pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg, size: size);
+Widget soFailPill({double size = 12}) => pill('ผิดพลาด', const Color(0xFFB91C1C), Pal.errBg, size: size);
+
+Widget sapStatusPill(String raw, {double size = 12}) {
+  final v = raw.trim().toLowerCase();
+  if (v.isEmpty || v == '-') return const Text('-');
+  if (v.contains('success') || v.contains('สำเร็จ')) {
+    return pill('Success', const Color(0xFF15803D), Pal.okBg, size: size);
+  }
+  if (v.contains('fail') || v.contains('error') || v.contains('ล้มเหลว')) {
+    return pill('Failed', const Color(0xFFB91C1C), Pal.errBg, size: size);
+  }
+  if (v.contains('pending') || v.contains('wait') || v.contains('รอ')) {
+    return pill('Pending SAP', const Color(0xFFC2410C), const Color(0xFFFFEDD5), size: size);
+  }
+  return pill(raw, Pal.muted, const Color(0xFFF3F4F6), size: size);
 }
 
 Widget transferPill(String raw) {

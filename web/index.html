@@ -41,6 +41,18 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script>
+    // ให้ Ctrl+ล้อเมาส์ / Ctrl +/- ซูมของเบราว์เซอร์ทำงาน — Flutter web กิน event เหล่านี้ไว้
+    window.addEventListener('wheel', function (e) {
+      if (e.ctrlKey) e.stopImmediatePropagation();
+    }, { capture: true, passive: true });
+    window.addEventListener('keydown', function (e) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      if (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '_' || e.key === '0') {
+        e.stopImmediatePropagation();
+      }
+    }, { capture: true });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

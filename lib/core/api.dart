@@ -36,7 +36,7 @@ class Api {
       return await req;
     } catch (_) {
       throw ApiException(
-        'เชื่อมต่อ Backend ไม่ได้ ที่ $apiUrl — เปิด Express พอร์ต 3000 ก่อน และ CORS ต้องอนุญาต http://localhost:5173',
+        'เชื่อมต่อ Backend ไม่ได้ ที่ $apiUrl',
       );
     }
   }
@@ -181,10 +181,14 @@ class Api {
     required List<StockTransferLine> items,
     String note = '',
     String documentNo = '',
+    String referenceNo = '',
     String requestedBy = '',
     DateTime? dueDate,
+    DateTime? createdAt,
     String? platform,
   }) async {
+    final ref = referenceNo.isNotEmpty ? referenceNo : documentNo;
+    final created = createdAt ?? DateTime.now();
     final body = jsonEncode({
       'fromWarehouseId': fromWarehouseId,
       'toWarehouseId': toWarehouseId,
@@ -192,9 +196,11 @@ class Api {
       'reason': note,
       'comments': note,
       if (documentNo.isNotEmpty) 'documentNo': documentNo,
-      if (documentNo.isNotEmpty) 'referenceNo': documentNo,
+      if (ref.isNotEmpty) 'referenceNo': ref,
+      if (ref.isNotEmpty) 'numAtCard': ref,
       if (requestedBy.isNotEmpty) 'requestedBy': requestedBy,
       if (dueDate != null) 'dueDate': dueDate.toIso8601String(),
+      'createdAt': created.toIso8601String(),
       if (platform != null && platform.isNotEmpty) 'platform': platform,
       'items': [for (final i in items) i.toJson()],
     });
@@ -204,7 +210,10 @@ class Api {
         final res = await _send(http.post(_u(path), headers: _headers(json: true), body: body));
         if (res.statusCode == 404) continue;
         final data = await _json(res);
-        if (data is Map) return StockTransfer.fromApi(Map<String, dynamic>.from(data));
+        if (data is Map) {
+          final row = StockTransfer.fromApi(Map<String, dynamic>.from(data));
+          return row.hasClock ? row : row.copyWith(createdAt: created);
+        }
         return StockTransfer(
           id: documentNo.isEmpty ? '-' : documentNo,
           fromWarehouseId: fromWarehouseId,
@@ -212,9 +221,9 @@ class Api {
           items: items,
           note: note,
           status: 'success',
-          createdAt: DateTime.now(),
+          createdAt: created,
           dueDate: dueDate,
-          referenceNo: documentNo,
+          referenceNo: ref,
           requestedBy: requestedBy,
           platform: platform ?? '',
         );
@@ -388,6 +397,16 @@ class Api {
       if (i > 0 && i % 80 == 0) await Future<void>.delayed(Duration.zero);
     }
     return out;
+  }
+
+  static Future<void> postSalesOrder(String orderId) async {
+    final res = await _send(
+      http.post(
+        _u('/api/orders/${Uri.encodeComponent(orderId)}/sales-order'),
+        headers: _headers(json: true),
+      ),
+    );
+    await _json(res);
   }
 
   static Future<void> syncPlatform(Channel channel) async {

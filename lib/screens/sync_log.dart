@@ -65,6 +65,19 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
     });
   }
 
+  DateTime? _lastSyncAt() {
+    DateTime? last;
+    for (final l in SyncLogStore.instance.logs) {
+      if (l.status != SyncStatus.success && l.status != SyncStatus.partial) continue;
+      if (last == null || l.time.isAfter(last)) last = l.time;
+    }
+    for (final s in ShopStore.instance.realShops) {
+      final t = s.lastSync;
+      if (t != null && (last == null || t.isAfter(last))) last = t;
+    }
+    return last;
+  }
+
   Future<void> _syncNow() async {
     try {
       await MarketplaceSyncStore.instance.syncNow(force: false);
@@ -97,6 +110,10 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
           padding: const EdgeInsets.all(24),
           child: Panel(
             title: 'ประวัติการซิงก์',
+            trailing: Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: LastSyncLabel(lastSync: _lastSyncAt()),
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -134,7 +151,7 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                       ],
                     ),
                     SizedBox(
-                      height: 44,
+                      height: 40,
                       child: ElevatedButton.icon(
                         onPressed: busy
                             ? null
@@ -146,25 +163,7 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                         label: const Text('ค้นหา'),
                       ),
                     ),
-                    SizedBox(
-                      height: 44,
-                      child: OutlinedButton.icon(
-                        onPressed: busy ? null : _syncNow,
-                        icon: syncStore.syncing
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.sync_rounded, size: 18),
-                        label: Text(syncStore.syncing ? 'กำลัง Sync...' : 'Sync Now'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Pal.text,
-                          backgroundColor: Colors.white,
-                          side: const BorderSide(color: Pal.line),
-                        ),
-                      ),
-                    ),
+                    LastSyncButton(syncing: syncStore.syncing, onSync: busy ? null : _syncNow),
                   ],
                 ),
                 if (store.error != null) ...[

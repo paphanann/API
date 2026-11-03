@@ -22,6 +22,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   String _ch = 'all';
   String _shop = 'all';
   String _st = 'all';
+  String _sap = 'all';
   String _q = '';
   int _page = 1;
   DateTime? _from = DateTime(2026, 10, 1);
@@ -42,7 +43,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
         orders.load(silent: true);
       }
       if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
-      if (InventoryStore.instance.rows.isEmpty) InventoryStore.instance.load();
     });
   }
 
@@ -53,6 +53,16 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   DateTime _dateOnly(DateTime t) => DateTime(t.year, t.month, t.day);
+
+  String _sapKey(Order o) {
+    final doc = (o.sapDocNum ?? '').trim();
+    final raw = doc.isNotEmpty ? 'sap_ok' : o.syncStatus;
+    final v = raw.toLowerCase();
+    if (v.contains('sap_ok') || v.contains('sapok') || v == 'ok') return 'ok';
+    if (v.contains('sap_error') || v.contains('error')) return 'error';
+    if (v.contains('saved') || v.isEmpty) return 'wait';
+    return 'other';
+  }
 
   bool get _hasDateFilter => _from != null && _to != null;
 
@@ -135,36 +145,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
     return orderKeys.any((id) => want.contains(id) || want.any((w) => w.contains(id) || id.contains(w)));
   }
 
-  ShopConn? _shopOf(Order o) {
-    final id = o.shopId.trim().toLowerCase();
+  DateTime? _lastSyncAt() {
+    DateTime? last;
     for (final s in ShopStore.instance.realShops) {
-      if (s.channel != o.channel) continue;
-      if (id.isNotEmpty && id != '-' && s.identityKeys.contains(id)) return s;
-      if (o.shopName.trim().isNotEmpty && s.identityKeys.contains(o.shopName.trim().toLowerCase())) return s;
+      final t = s.lastSync;
+      if (t != null && (last == null || t.isAfter(last))) last = t;
     }
-    final same = [for (final s in ShopStore.instance.realShops) if (s.isReal && s.channel == o.channel) s];
-    return same.length == 1 ? same.first : null;
-  }
-
-  String _sapWhsFor(Order o) {
-    final shop = _shopOf(o);
-    if (shop != null) {
-      final w = ShopStore.instance.withMeta(shop).warehouse.trim();
-      if (w.isNotEmpty && w != '-') return warehouseLabel(w);
+    for (final o in OrderStore.instance.orders) {
+      final t = o.lastSyncedAt;
+      if (t != null && (last == null || t.isAfter(last))) last = t;
     }
-    final codes = <String>{};
-    for (final r in InventoryStore.instance.rows) {
-      if (r.channel != o.channel) continue;
-      if (r.sapWhsCode.isEmpty || r.sapWhsCode == '-') continue;
-      if (shop != null) {
-        final keys = {r.shopId.trim().toLowerCase(), r.shopName.trim().toLowerCase()}..removeWhere((v) => v.isEmpty || v == '-');
-        if (keys.isEmpty || keys.any((id) => shop.identityKeys.contains(id))) codes.add(r.sapWhsCode);
-      } else if (o.shopId.trim().isNotEmpty && (r.shopId == o.shopId || r.shopName == o.shopId)) {
-        codes.add(r.sapWhsCode);
-      }
-    }
-    if (codes.length == 1) return warehouseLabel(codes.first);
-    return '-';
+    return last;
   }
 
   List<Order> _filtered() {
@@ -173,6 +164,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       if (_ch != 'all' && o.channel.name != _ch) return false;
       if (!_matchShop(o)) return false;
       if (_st != 'all' && o.status.name != _st) return false;
+      if (_sap != 'all' && _sapKey(o) != _sap) return false;
       if (_hasDateFilter) {
         final day = _dateOnly(o.createdAt);
         if (day.isBefore(_from!) || day.isAfter(_to!)) return false;
@@ -188,7 +180,6 @@ class _OrdersScreenState extends State<OrdersScreen> {
       listenable: Listenable.merge([
         OrderStore.instance,
         ShopStore.instance,
-        InventoryStore.instance,
         MarketplaceSyncStore.instance,
       ]),
       builder: (context, _) {
@@ -216,10 +207,18 @@ class _OrdersScreenState extends State<OrdersScreen> {
               ),
               const SizedBox(height: 20),
               Panel(
-                pad: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                pad: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        _lastSyncAt() == null ? 'Sync ล่าสุด : -' : 'Sync ล่าสุด : ${dtFmt.format(_lastSyncAt()!)}',
+                        style: const TextStyle(color: Pal.muted, fontSize: 13),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     Wrap(
                       spacing: 12,
                       runSpacing: 12,
@@ -262,16 +261,34 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         Drop<String>(
                           label: 'สถานะ',
                           value: _st,
-                          width: 160,
+                          width: 200,
                           onChanged: (v) => setState(() {
                             _st = v ?? 'all';
                             _page = 1;
                           }),
                           items: const [
                             DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
+                            DropdownMenuItem(value: 'unpaid', child: Text('รอชำระเงิน')),
                             DropdownMenuItem(value: 'pending', child: Text('รอดำเนินการ')),
+                            DropdownMenuItem(value: 'shipping', child: Text('กำลังจัดส่ง')),
                             DropdownMenuItem(value: 'success', child: Text('สำเร็จ')),
                             DropdownMenuItem(value: 'cancelled', child: Text('ยกเลิก')),
+                            DropdownMenuItem(value: 'returned', child: Text('คืนสินค้า/คืนเงิน')),
+                          ],
+                        ),
+                        Drop<String>(
+                          label: 'สถานะ SAP',
+                          value: _sap,
+                          width: 180,
+                          onChanged: (v) => setState(() {
+                            _sap = v ?? 'all';
+                            _page = 1;
+                          }),
+                          items: const [
+                            DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
+                            DropdownMenuItem(value: 'wait', child: Text('รอ SAP')),
+                            DropdownMenuItem(value: 'ok', child: Text('สำเร็จ')),
+                            DropdownMenuItem(value: 'error', child: Text('SAP ล้มเหลว')),
                           ],
                         ),
                         DateRangeField(from: _from, to: _to, onTap: _pickRange),
@@ -327,71 +344,60 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       const LinearProgressIndicator(minHeight: 3),
                     ],
                     const SizedBox(height: 16),
-                    FillTable(
-                      minWidth: 1680,
-                      child: DataTable(
-                        headingRowColor: tableHeadBg,
-                        headingTextStyle: tableHead,
-                        headingRowHeight: 40,
-                        horizontalMargin: 8,
-                        columnSpacing: 16,
-                        dataRowMinHeight: 40,
-                        dataRowMaxHeight: 48,
-                        columns: const [
-                          DataColumn(label: Text('#')),
-                          DataColumn(label: Text('Order No.')),
-                          DataColumn(label: Text('Platform')),
-                          DataColumn(label: Text('ชื่อร้าน')),
-                          DataColumn(label: Text('คลัง SAP')),
-                          DataColumn(label: Text('วันที่')),
-                          DataColumn(label: Text('ยอดรวม')),
-                          DataColumn(label: Text('สถานะออเดอร์')),
-                          DataColumn(label: Text('Sync Status')),
-                          DataColumn(label: Text('Last Sync')),
-                          DataColumn(label: Text('SAP DocNum')),
-                          DataColumn(label: Text('Action')),
-                        ],
-                        rows: [
-                          for (var i = 0; i < rows.length; i++)
-                            DataRow(
-                              cells: [
-                                DataCell(Text('${start + i + 1}', style: const TextStyle(color: Pal.muted))),
-                                DataCell(Text(rows[i].id, style: const TextStyle(fontWeight: FontWeight.w600))),
-                                DataCell(ChannelLabel(channel: rows[i].channel)),
-                                DataCell(Text(
-                                  ShopStore.instance.nameFor(channel: rows[i].channel, shopId: rows[i].shopId, shopName: rows[i].shopName),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                )),
-                                DataCell(Text(_sapWhsFor(rows[i]))),
-                                DataCell(Text(dtFmt.format(rows[i].createdAt))),
-                                DataCell(Text(baht.format(rows[i].total), style: const TextStyle(fontWeight: FontWeight.w600))),
-                                DataCell(orderPill(rows[i].status)),
-                                DataCell(orderSyncPill(
-                                  rows[i].sapDocNum != null && rows[i].sapDocNum!.isNotEmpty
-                                      ? 'sap_ok'
-                                      : rows[i].syncStatus,
-                                )),
-                                DataCell(Text(
-                                  rows[i].lastSyncedAt == null ? '-' : dtFmt.format(rows[i].lastSyncedAt!),
-                                  maxLines: 1,
-                                  softWrap: false,
-                                )),
-                                DataCell(Text(rows[i].sapDocNum ?? '-')),
-                                DataCell(
-                                  TextButton(
-                                    onPressed: () => context.go('/orders/${Uri.encodeComponent(rows[i].id)}'),
-                                    style: TextButton.styleFrom(
-                                      visualDensity: VisualDensity.compact,
-                                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                                    ),
-                                    child: const Text('ดูรายละเอียด'),
+                    DataTable(
+                      headingRowColor: tableHeadBg,
+                      headingTextStyle: tableHead,
+                      headingRowHeight: 40,
+                      horizontalMargin: 8,
+                      columnSpacing: 16,
+                      dataRowMinHeight: 40,
+                      dataRowMaxHeight: 48,
+                      columns: const [
+                        DataColumn(label: Text('#')),
+                        DataColumn(label: Text('Order No.')),
+                        DataColumn(label: Text('Platform')),
+                        DataColumn(label: Text('ชื่อร้าน')),
+                        DataColumn(label: Text('วันที่')),
+                        DataColumn(label: Text('ยอดรวม')),
+                        DataColumn(label: Text('สถานะออเดอร์')),
+                        DataColumn(label: Text('สถานะ SAP')),
+                        DataColumn(label: Text('SAP DocNum')),
+                        DataColumn(label: Text('Action')),
+                      ],
+                      rows: [
+                        for (var i = 0; i < rows.length; i++)
+                          DataRow(
+                            cells: [
+                              DataCell(Text('${start + i + 1}', style: const TextStyle(color: Pal.muted))),
+                              DataCell(Text(rows[i].id, style: const TextStyle(fontWeight: FontWeight.w600))),
+                              DataCell(ChannelLabel(channel: rows[i].channel)),
+                              DataCell(Text(
+                                ShopStore.instance.nameFor(channel: rows[i].channel, shopId: rows[i].shopId, shopName: rows[i].shopName),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              )),
+                              DataCell(Text(dtFmt.format(rows[i].createdAt))),
+                              DataCell(Text(baht.format(rows[i].total), style: const TextStyle(fontWeight: FontWeight.w600))),
+                              DataCell(orderPill(rows[i].status)),
+                              DataCell(orderSyncPill(
+                                rows[i].sapDocNum != null && rows[i].sapDocNum!.isNotEmpty
+                                    ? 'sap_ok'
+                                    : rows[i].syncStatus,
+                              )),
+                              DataCell(Text(rows[i].sapDocNum ?? '-')),
+                              DataCell(
+                                TextButton(
+                                  onPressed: () => context.go('/orders/${Uri.encodeComponent(rows[i].id)}'),
+                                  style: TextButton.styleFrom(
+                                    visualDensity: VisualDensity.compact,
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
                                   ),
+                                  child: const Text('ดูรายละเอียด'),
                                 ),
-                              ],
-                            ),
-                        ],
-                      ),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
                     if (rows.isEmpty && !busy)
                       const Padding(
@@ -403,8 +409,8 @@ class _OrdersScreenState extends State<OrdersScreen> {
                       children: [
                         Text(
                           all.isEmpty
-                              ? 'แสดง 0 ออเดอร์'
-                              : 'แสดง $fromN - $toN จาก ${all.length} ออเดอร์',
+                              ? 'แสดง 0 รายการ'
+                              : 'แสดง $fromN - $toN จาก ${all.length} รายการ',
                           style: const TextStyle(color: Pal.muted, fontSize: 13),
                         ),
                         const Spacer(),

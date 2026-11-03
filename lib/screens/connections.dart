@@ -6,6 +6,7 @@ import '../core/format.dart';
 import '../models/models.dart';
 import '../stores/stores.dart';
 import '../app/theme.dart';
+import '../widgets/sync_status.dart';
 import '../widgets/ui.dart';
 
 class ConnectScreen extends StatefulWidget {
@@ -101,6 +102,36 @@ class _ConnectScreenState extends State<ConnectScreen> {
     super.dispose();
   }
 
+  DateTime? _lastSyncAt() {
+    DateTime? last;
+    for (final s in ShopStore.instance.realShops) {
+      final t = s.lastSync;
+      if (t != null && (last == null || t.isAfter(last))) last = t;
+    }
+    for (final l in SyncLogStore.instance.logs) {
+      if (l.status != SyncStatus.success && l.status != SyncStatus.partial) continue;
+      if (last == null || l.time.isAfter(last)) last = l.time;
+    }
+    return last;
+  }
+
+  Future<void> _syncNow() async {
+    try {
+      await MarketplaceSyncStore.instance.syncNow(force: false);
+      await Future.wait([
+        ShopStore.instance.load(),
+        SyncLogStore.instance.load(),
+      ]);
+      if (!mounted) return;
+      await showSystemStatusSnack(context, reload: false);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
+      );
+    }
+  }
+
   void _clearFilters() {
     setState(() {
       _platform = 'all';
@@ -127,7 +158,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: ShopStore.instance,
+      listenable: Listenable.merge([ShopStore.instance, MarketplaceSyncStore.instance, SyncLogStore.instance]),
       builder: (context, _) {
         final store = ShopStore.instance;
         if (store.showConnectSuccess && store.lastConnectedShop != null) {
@@ -265,6 +296,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
                             label: const Text('ล้างตัวกรอง', style: TextStyle(fontSize: 13)),
                           ),
                         );
+                        final syncNow = LastSyncButton(
+                          syncing: MarketplaceSyncStore.instance.syncing,
+                          onSync: _syncNow,
+                        );
+                        final lastSync = SizedBox(
+                          height: 40,
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: LastSyncLabel(lastSync: _lastSyncAt()),
+                          ),
+                        );
                         if (c.maxWidth < 900) {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -273,7 +315,16 @@ class _ConnectScreenState extends State<ConnectScreen> {
                               const SizedBox(height: 12),
                               search,
                               const SizedBox(height: 12),
-                              Align(alignment: Alignment.centerRight, child: clear),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  clear,
+                                  const SizedBox(width: 12),
+                                  syncNow,
+                                  const Spacer(),
+                                  lastSync,
+                                ],
+                              ),
                             ],
                           );
                         }
@@ -287,6 +338,10 @@ class _ConnectScreenState extends State<ConnectScreen> {
                             search,
                             const SizedBox(width: 12),
                             clear,
+                            const SizedBox(width: 12),
+                            syncNow,
+                            const Spacer(),
+                            lastSync,
                           ],
                         );
                       },
@@ -322,7 +377,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                               onSelectChanged: (_) => context.go(store.withMeta(shown[i]).detailPath),
                               cells: [
                                 DataCell(Text('${i + 1}')),
-                                DataCell(ChannelDot(channel: shown[i].channel, size: 26)),
+                                DataCell(Text(shown[i].channel.label, style: const TextStyle(fontWeight: FontWeight.w600))),
                                 DataCell(
                                   Text(
                                     shown[i].displayName,

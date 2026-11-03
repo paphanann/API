@@ -31,6 +31,7 @@ class TransferStore extends PassStore {
     required List<StockTransferLine> items,
     String note = '',
     String documentNo = '',
+    String referenceNo = '',
     String requestedBy = '',
     DateTime? dueDate,
     String? platform,
@@ -39,18 +40,22 @@ class TransferStore extends PassStore {
     error = null;
     notifyListeners();
     try {
+      final now = DateTime.now();
       final row = await Api.createStockTransfer(
         fromWarehouseId: fromWarehouseId,
         toWarehouseId: toWarehouseId,
         items: items,
         note: note,
         documentNo: documentNo,
+        referenceNo: referenceNo,
         requestedBy: requestedBy,
         dueDate: dueDate,
+        createdAt: now,
         platform: platform,
       );
-      rows = [row, ...rows];
-      return row;
+      final stamped = row.hasClock ? row : row.copyWith(createdAt: now);
+      rows = [stamped, ...rows];
+      return stamped;
     } on ApiException catch (e) {
       error = e.message;
       rethrow;

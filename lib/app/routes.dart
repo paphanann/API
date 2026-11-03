@@ -17,57 +17,33 @@ import '../screens/sync_log.dart';
 import 'session.dart';
 import '../widgets/shell.dart';
 
+String _appPath(String raw) {
+  var path = raw;
+  if (path.startsWith('/API')) {
+    path = path.substring(4);
+    if (!path.startsWith('/')) path = '/$path';
+  }
+  if (path.isEmpty || path == '/index.html') return '/login';
+  return path;
+}
+
 String _startLocation() {
   if (!kIsWeb) return '/login';
 
   final uri = Uri.base;
   final hash = uri.fragment.trim();
+  final fromHash = hash.isEmpty ? null : Uri.parse(hash.startsWith('/') ? hash : '/$hash');
+  final route = fromHash != null && fromHash.path.isNotEmpty ? fromHash : uri;
 
-  final fromHash = hash.isEmpty
-      ? null
-      : Uri.parse(hash.startsWith('/') ? hash : '/$hash');
-
-  // ถ้ามี hash route เช่น #/orders ให้ใช้ route ใน hash
-  if (fromHash != null) {
-    final status =
-        (fromHash.queryParameters['status'] ??
-                uri.queryParameters['status'] ??
-                '')
-            .toLowerCase();
-
-    final query =
-        fromHash.query.isNotEmpty ? fromHash.query : uri.query;
-
-    if (status == 'success' ||
-        status == 'error' ||
-        Api.pendingOAuthReturn) {
-      return query.isEmpty
-          ? '/connections'
-          : '/connections?$query';
-    }
-
-    final path =
-        fromHash.path.isEmpty ? '/login' : fromHash.path;
-
-    return fromHash.hasQuery
-        ? '$path?${fromHash.query}'
-        : path;
+  final status = (route.queryParameters['status'] ?? uri.queryParameters['status'] ?? '').toLowerCase();
+  final query = route.query.isNotEmpty ? route.query : uri.query;
+  if (status == 'success' || status == 'error' || Api.pendingOAuthReturn) {
+    return query.isEmpty ? '/connections' : '/connections?$query';
   }
 
-  // URL หลักของ GitHub Pages เช่น /API/
-  // ไม่ใช่ route ของ GoRouter
-  final status =
-      (uri.queryParameters['status'] ?? '').toLowerCase();
-
-  if (status == 'success' ||
-      status == 'error' ||
-      Api.pendingOAuthReturn) {
-    return uri.query.isEmpty
-        ? '/connections'
-        : '/connections?${uri.query}';
-  }
-
-  return '/login';
+  final path = _appPath(route.path);
+  if (path == '/') return '/login';
+  return (fromHash ?? route).hasQuery ? '$path?${(fromHash ?? route).query}' : path;
 }
 
 String? _oauthTarget(Uri uri) {
