@@ -23,36 +23,21 @@ class _HomeScreenState extends State<HomeScreen> {
   late final Listenable _listenable = Listenable.merge([
     DashStore.instance,
     ShopStore.instance,
-    OrderStore.instance,
-    ProductStore.instance,
-    SyncLogStore.instance,
     TransferStore.instance,
-    MarketplaceSyncStore.instance,
     Session.instance,
   ]);
 
-  static const _thMonths = [
-    'มกราคม',
-    'กุมภาพันธ์',
-    'มีนาคม',
-    'เมษายน',
-    'พฤษภาคม',
-    'มิถุนายน',
-    'กรกฎาคม',
-    'สิงหาคม',
-    'กันยายน',
-    'ตุลาคม',
-    'พฤศจิกายน',
-    'ธันวาคม',
-  ];
-
   DateTime? _from = DateTime(2026, 10, 1);
   DateTime? _to;
-  int _month = 0;
-  int _year = 0;
   String _ch = 'all';
+  String _shop = 'all';
   bool _sapOn = false;
-  DateTime? _sapLast;
+  int _recentPage = 1;
+  static const _recentSize = 20;
+  List<Order> _recent = [];
+  int _recentTotal = 0;
+  bool _recentLoading = false;
+  int _recentReq = 0;
 
   @override
   void initState() {
@@ -61,13 +46,10 @@ class _HomeScreenState extends State<HomeScreen> {
     _to = today;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      DashStore.instance.load();
       ShopStore.instance.load();
-      OrderStore.instance.load();
-      ProductStore.instance.load();
-      SyncLogStore.instance.load();
       TransferStore.instance.load();
       _loadSap();
+      _reload();
     });
   }
 
@@ -77,54 +59,26 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() {
         _sapOn = s.database.trim().isNotEmpty && (s.host.trim().isNotEmpty || s.endpoint.trim().isNotEmpty);
-        _sapLast = s.erpLastChecked;
       });
     } catch (_) {}
   }
 
-  DateTime? _lastSyncAt() {
-    DateTime? last;
-    for (final s in ShopStore.instance.realShops) {
-      final t = s.lastSync;
-      if (t != null && (last == null || t.isAfter(last))) last = t;
-    }
-    for (final l in SyncLogStore.instance.logs) {
-      if (l.status != SyncStatus.success && l.status != SyncStatus.partial) continue;
-      if (last == null || l.time.isAfter(last)) last = l.time;
-    }
-    return last;
-  }
-
-  Future<void> _syncNow() async {
-    try {
-      await MarketplaceSyncStore.instance.syncNow(force: false);
-      await Future.wait([
-        OrderStore.instance.load(),
-        ShopStore.instance.load(),
-        SyncLogStore.instance.load(),
-        ProductStore.instance.load(),
-        TransferStore.instance.load(),
-        DashStore.instance.load(),
-      ]);
-      if (!mounted) return;
-      await showSystemStatusSnack(context, reload: false);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
-      );
-    }
-  }
-
   DateTime _day(DateTime t) => DateTime(t.year, t.month, t.day);
 
-  bool _inFilter(DateTime t) {
-    final day = _day(t);
-    if (_from != null && day.isBefore(_from!)) return false;
-    if (_to != null && day.isAfter(_to!)) return false;
-    if (_month != 0 && t.month != _month) return false;
-    if (_year != 0 && t.year != _year) return false;
-    return true;
+  void _applyPeriod(DatePeriod period) {
+    if (period == DatePeriod.custom) {
+      _pickRange().whenComplete(() {
+        if (mounted) setState(() {});
+      });
+      return;
+    }
+    final range = rangeOfPeriod(period);
+    setState(() {
+      _from = range.$1;
+      _to = range.$2;
+      _recentPage = 1;
+    });
+    _reload();
   }
 
   Future<void> _pickRange() async {
@@ -143,7 +97,75 @@ class _HomeScreenState extends State<HomeScreen> {
         _from = _day(picked.range!.start);
         _to = _day(picked.range!.end);
       }
+      _recentPage = 1;
     });
+    _reload();
+  }
+
+  String? get _platformQuery {
+    if (_ch != 'all') return Channel.values.byName(_ch).apiPlatform;
+    if (_shop == 'all') return null;
+    final name = _shop.split('|').first;
+    final channel = Channel.values.where((c) => c.name == name);
+    return channel.isEmpty ? null : channel.first.apiPlatform;
+  }
+
+  String? get _shopQuery {
+    if (_shop == 'all') return null;
+    final cut = _shop.indexOf('|');
+    final id = cut >= 0 ? _shop.substring(cut + 1) : _shop;
+    if (id.isEmpty || id == '-') return null;
+    return id;
+  }
+
+  int _transferCount() {
+    var n = 0;
+    for (final t in TransferStore.instance.rows) {
+      final at = t.displayAt;
+      if (_from != null && _to != null) {
+        if (at == null) continue;
+        if (!inDayRange(at, _from, _to)) continue;
+      }
+      if (_ch != 'all') {
+        final ch = ChannelX.fromApi(t.platform);
+        if (ch == null || ch.name != _ch) continue;
+      }
+      n++;
+    }
+    return n;
+  }
+
+  Future<void> _reload() async {
+    _recentPage = _recentPage < 1 ? 1 : _recentPage;
+    await Future.wait([
+      DashStore.instance.load(from: _from, to: _to, platform: _platformQuery, shopId: _shopQuery),
+      TransferStore.instance.load(),
+    ]);
+    if (_recentPage > 1) await _loadRecent();
+  }
+
+  Future<void> _loadRecent() async {
+    final req = ++_recentReq;
+    setState(() => _recentLoading = true);
+    try {
+      final page = await Api.getOrdersPage(
+        platform: _platformQuery,
+        shopId: _shopQuery,
+        from: _from,
+        to: _to,
+        page: _recentPage,
+        pageSize: _recentSize,
+      );
+      if (!mounted || req != _recentReq) return;
+      setState(() {
+        _recent = page.items;
+        _recentTotal = page.total;
+        _recentLoading = false;
+      });
+    } catch (_) {
+      if (!mounted || req != _recentReq) return;
+      setState(() => _recentLoading = false);
+    }
   }
 
   @override
@@ -154,120 +176,109 @@ class _HomeScreenState extends State<HomeScreen> {
         final dash = DashStore.instance;
         final shops = ShopStore.instance.shops;
         final scopedShops = _ch == 'all' ? shops : shops.where((s) => s.channel.name == _ch).toList();
-        final orders = OrderStore.instance.orders.where((o) {
-          if (_ch != 'all' && o.channel.name != _ch) return false;
-          return _inFilter(o.createdAt);
-        }).toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        final logs = SyncLogStore.instance.logs.where((l) {
-          if (_ch != 'all' && l.channel.name != _ch) return false;
-          return _inFilter(l.time);
-        }).toList()
-          ..sort((a, b) => b.time.compareTo(a.time));
-        final d = DashData.fromLive(orders: orders, shops: scopedShops, until: _to);
+        final d = dash.data;
         final liveChannels = {
           for (final s in scopedShops)
             if (s.isReal) s.channel,
         };
         final connectedN = liveChannels.length + (_sapOn ? 1 : 0);
         const shopTotal = 4;
-        final orderHint = _weekHint(d);
-        SyncRow? lastOkLog;
-        for (final l in logs) {
-          if (l.status == SyncStatus.success || l.status == SyncStatus.partial) {
-            lastOkLog = l;
-            break;
-          }
-        }
-        final okPlatforms = <Channel>{
-          for (final l in logs)
-            if (l.status == SyncStatus.success || l.status == SyncStatus.partial) l.channel,
-        };
-        final errorLogs = logs.where((l) => l.status == SyncStatus.error).toList();
-        final waitSo = orders.where((o) => _needsSo(o)).length;
-        final waitTr = orders.where((o) => _needsTr(o)).length;
-        final years = {
-          DateTime.now().year,
-          DateTime.now().year - 1,
-          DateTime.now().year - 2,
-          for (final o in OrderStore.instance.orders) o.createdAt.year,
-        }.toList()
-          ..sort((a, b) => b.compareTo(a));
+        final productCount = d.productCount;
+        final soCount = d.soCount;
+        final deliveryCount = d.deliveryCount;
+        final transferCount = _transferCount();
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-          child: Column(
+        return LayoutBuilder(
+          builder: (context, viewport) {
+            final screen = MediaQuery.sizeOf(context);
+            final maxH = viewport.maxHeight.isFinite && viewport.maxHeight > 0 ? viewport.maxHeight : screen.height - 68;
+            final maxW = viewport.maxWidth.isFinite && viewport.maxWidth > 0 ? viewport.maxWidth : screen.width;
+            final fill = maxH >= 560 && maxW >= 960;
+            const pad = EdgeInsets.fromLTRB(20, 12, 20, 16);
+            final body = Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              const Row(
+                children: [
+                  Expanded(
+                    child: Text('หน้าหลัก (Dashboard)', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                  ),
+                  TopBarLastSync(),
+                ],
+              ),
+              const SizedBox(height: 12),
               LayoutBuilder(
                 builder: (context, box) {
-                  const title = Text('หน้าหลัก', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800));
-                  final syncStore = MarketplaceSyncStore.instance;
-                  final filters = Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    alignment: WrapAlignment.end,
-                    crossAxisAlignment: WrapCrossAlignment.end,
-                    children: [
-                      DateRangeField(from: _from, to: _to, onTap: _pickRange),
-                      Drop<int>(
-                        label: 'เดือน',
-                        value: _month,
-                        width: 150,
-                        items: [
-                          const DropdownMenuItem(value: 0, child: Text('ทั้งหมด')),
-                          for (var i = 1; i <= 12; i++) DropdownMenuItem(value: i, child: Text(_thMonths[i - 1])),
-                        ],
-                        onChanged: (v) => setState(() => _month = v ?? 0),
-                      ),
-                      Drop<int>(
-                        label: 'ปี',
-                        value: _year,
-                        width: 120,
-                        items: [
-                          const DropdownMenuItem(value: 0, child: Text('ทั้งหมด')),
-                          for (final y in years) DropdownMenuItem(value: y, child: Text('$y')),
-                        ],
-                        onChanged: (v) => setState(() => _year = v ?? 0),
-                      ),
-                      Drop<String>(
-                        label: 'แพลตฟอร์ม',
-                        value: _ch,
-                        width: 160,
-                        items: [
-                          const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                          for (final c in Channel.values) DropdownMenuItem(value: c.name, child: Text(c.shortLabel)),
-                        ],
-                        onChanged: (v) => setState(() => _ch = v ?? 'all'),
-                      ),
-                      LastSyncButton(syncing: syncStore.syncing, onSync: _syncNow),
-                    ],
-                  );
-                  final tools = Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      LastSyncLabel(lastSync: _lastSyncAt()),
-                      const SizedBox(height: 4),
-                      filters,
-                    ],
+                  final filters = [
+                    DateRangeField(from: _from, to: _to, onTap: _pickRange),
+                    PeriodField(value: periodOfRange(_from, _to), onChanged: _applyPeriod),
+                    Drop<String>(
+                      label: 'แพลตฟอร์ม',
+                      value: _ch,
+                      width: 160,
+                      items: [
+                        const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
+                        for (final c in Channel.values) DropdownMenuItem(value: c.name, child: Text(c.shortLabel)),
+                      ],
+                      onChanged: (v) {
+                        setState(() {
+                          _ch = v ?? 'all';
+                          _shop = 'all';
+                          _recentPage = 1;
+                        });
+                        _reload();
+                      },
+                    ),
+                    Drop<String>(
+                      label: 'ร้านค้า',
+                      value: _shop,
+                      width: 180,
+                      items: [
+                        const DropdownMenuItem(value: 'all', child: Text('ทุกร้าน')),
+                        for (final s in ShopStore.instance.realShops)
+                          if (s.connected && s.apiShopId.isNotEmpty && (_ch == 'all' || s.channel.name == _ch))
+                            DropdownMenuItem(
+                              value: '${s.channel.name}|${s.apiShopId}',
+                              child: Text(s.displayName),
+                            ),
+                      ],
+                      onChanged: (v) {
+                        setState(() {
+                          _shop = v ?? 'all';
+                          _recentPage = 1;
+                        });
+                        _reload();
+                      },
+                    ),
+                  ];
+                  final sync = HeaderSyncActions(
+                    showLabel: false,
+                    onDone: () async {
+                      if (_recentPage > 1) await _loadRecent();
+                    },
                   );
                   if (box.maxWidth < 1100) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [title, const SizedBox(height: 14), tools],
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      crossAxisAlignment: WrapCrossAlignment.end,
+                      children: [...filters, sync],
                     );
                   }
                   return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      title,
-                      const SizedBox(width: 16),
-                      Expanded(child: tools),
+                      for (var i = 0; i < filters.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 12),
+                        filters[i],
+                      ],
+                      const SizedBox(width: 12),
+                      Padding(padding: const EdgeInsets.only(bottom: 1), child: sync),
                     ],
                   );
                 },
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
               if (dash.error != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 16),
@@ -280,64 +291,51 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ),
-              if (dash.loading) const Padding(padding: EdgeInsets.only(bottom: 16), child: LinearProgressIndicator(minHeight: 3)),
+              if (dash.loading || _recentLoading) const Padding(padding: EdgeInsets.only(bottom: 16), child: LinearProgressIndicator(minHeight: 3)),
               LayoutBuilder(
                 builder: (context, c) {
                   final cards = [
                     StatCard(
+                      compact: true,
                       title: 'คำสั่งซื้อทั้งหมด',
                       value: nFmt.format(d.totalOrders),
                       icon: Icons.shopping_cart_outlined,
                       color: const Color(0xFF2563EB),
-                      hint: orderHint == null
-                          ? null
-                          : Text(orderHint, style: TextStyle(color: orderHint.startsWith('-') ? Pal.err : Pal.ok, fontSize: 12, fontWeight: FontWeight.w600)),
                     ),
                     StatCard(
-                      title: 'Sync สำเร็จล่าสุด',
-                      value: lastOkLog == null ? '—' : dtFmt.format(lastOkLog.time),
-                      icon: Icons.sync_rounded,
-                      color: const Color(0xFF0D9488),
-                      hint: Text(
-                        okPlatforms.isEmpty ? 'ยังไม่มีประวัติ' : [for (final c in Channel.values) if (okPlatforms.contains(c)) c.shortLabel].join(' / '),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: okPlatforms.isEmpty ? Pal.muted : Pal.ok, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
+                      compact: true,
+                      title: 'สินค้าทั้งหมด',
+                      value: nFmt.format(productCount),
+                      icon: Icons.inventory_2_outlined,
+                      color: const Color(0xFF7C3AED),
                     ),
                     StatCard(
-                      title: 'มีปัญหาการซิงก์',
-                      value: nFmt.format(errorLogs.length),
-                      icon: Icons.warning_amber_rounded,
-                      color: const Color(0xFFF97316),
-                      hint: Text(
-                        errorLogs.isNotEmpty ? 'แพลตฟอร์มที่ error' : 'ไม่มีปัญหา',
-                        style: TextStyle(color: errorLogs.isNotEmpty ? Pal.warn : Pal.ok, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
+                      compact: true,
+                      title: 'สร้าง Sales Order (SO)',
+                      value: nFmt.format(soCount),
+                      icon: Icons.description_outlined,
+                      color: const Color(0xFFF59E0B),
                     ),
                     StatCard(
-                      title: 'เชื่อมต่อแล้ว',
+                      compact: true,
+                      title: 'สร้าง Delivery',
+                      value: nFmt.format(deliveryCount),
+                      icon: Icons.local_shipping_outlined,
+                      color: const Color(0xFF06B6D4),
+                    ),
+                    StatCard(
+                      compact: true,
+                      title: 'สร้าง Transfer Request',
+                      value: nFmt.format(transferCount),
+                      icon: Icons.swap_horiz_rounded,
+                      color: const Color(0xFFF59E0B),
+                    ),
+                    StatCard(
+                      compact: true,
+                      title: 'เชื่อมต่อระบบ',
                       value: '$connectedN/$shopTotal',
                       icon: Icons.power_outlined,
                       color: Pal.ok,
-                      hint: Text(
-                        connectedN >= shopTotal ? 'ครบทุกแพลตฟอร์ม' : 'รอเชื่อมต่อ',
-                        style: TextStyle(color: connectedN >= shopTotal ? Pal.ok : Pal.warn, fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                    StatCard(
-                      title: 'รอสร้าง SO',
-                      value: nFmt.format(waitSo),
-                      icon: Icons.description_outlined,
-                      color: const Color(0xFF2563EB),
-                      hint: const Text('รอดำเนินการใน SAP', style: TextStyle(color: Pal.muted, fontSize: 12, fontWeight: FontWeight.w600)),
-                    ),
-                    StatCard(
-                      title: 'รอสร้าง TR',
-                      value: nFmt.format(waitTr),
-                      icon: Icons.inventory_2_outlined,
-                      color: const Color(0xFF7C3AED),
-                      hint: const Text('รอโอนสินค้าลงออนไลน์', style: TextStyle(color: Pal.muted, fontSize: 12, fontWeight: FontWeight.w600)),
                     ),
                   ];
                   if (c.maxWidth >= 1280) {
@@ -362,111 +360,112 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 },
               ),
-              const SizedBox(height: 16),
-              LayoutBuilder(
-                builder: (context, c) {
-                  Widget trend({required bool expand}) => Panel(
-                        expand: expand,
-                        title: 'สรุปคำสั่งซื้อ 7 วันล่าสุด',
-                        trailing: const Padding(
-                          padding: EdgeInsets.only(right: 8),
-                          child: Wrap(
-                            spacing: 14,
-                            children: [
-                              _Dot(color: Pal.shopee, text: 'Shopee'),
-                              _Dot(color: Pal.tiktok, text: 'TikTok Shop'),
-                              _Dot(color: Pal.lazada, text: 'Lazada'),
-                            ],
-                          ),
-                        ),
-                        child: expand
-                            ? SizedBox.expand(child: _Trend(d))
-                            : SizedBox(width: double.infinity, height: 260, child: _Trend(d)),
-                      );
-                  Widget conns({required bool expand}) => Panel(
-                        expand: expand,
-                        title: 'สถานะการเชื่อมต่อ',
-                        trailing: Session.instance.isUserRole
-                            ? null
-                            : TextButton(
-                                onPressed: () => context.go('/connections'),
-                                child: const Text('จัดการการเชื่อมต่อ →'),
-                              ),
-                        child: _ConnList(shops: shops, sapOn: _sapOn, sapLast: _sapLast),
-                      );
-                  if (c.maxWidth < 960) {
-                    return Column(children: [trend(expand: false), const SizedBox(height: 16), conns(expand: false)]);
-                  }
-                  return SizedBox(
-                    height: 340,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(flex: 2, child: trend(expand: true)),
-                        const SizedBox(width: 16),
-                        Expanded(child: conns(expand: true)),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 16),
-              LayoutBuilder(
-                builder: (context, c) {
-                  final share = Panel(
-                    title: 'สัดส่วนคำสั่งซื้อ',
-                    child: SizedBox(height: 180, child: _Share(d)),
-                  );
-                  final recent = Panel(
-                    title: 'คำสั่งซื้อล่าสุด',
-                    trailing: TextButton(
-                      onPressed: () => context.go('/orders'),
-                      child: const Text('ดูทั้งหมด →'),
-                    ),
-                    pad: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    child: _RecentOrders(orders.take(5).toList()),
-                  );
-                  final sync = Panel(
-                    title: 'Sync Log ล่าสุด',
-                    trailing: Session.instance.isUserRole
-                        ? null
-                        : TextButton(
-                            onPressed: () => context.go('/sync-log'),
-                            child: const Text('ดูทั้งหมด →'),
-                          ),
-                    pad: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    child: _RecentLogs(logs.take(5).toList()),
-                  );
-                  if (c.maxWidth < 1100) {
-                    return Column(
-                      children: [
-                        share,
-                        const SizedBox(height: 16),
-                        recent,
-                        const SizedBox(height: 16),
-                        sync,
-                      ],
-                    );
-                  }
-                  return IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(child: share),
-                        const SizedBox(width: 16),
-                        Expanded(child: recent),
-                        const SizedBox(width: 16),
-                        Expanded(child: sync),
-                      ],
-                    ),
-                  );
-                },
-              ),
+              const SizedBox(height: 10),
+              if (fill)
+                Expanded(flex: 6, child: _chartRow(d, shops, fill: true))
+              else
+                _chartRow(d, shops, fill: false),
+              const SizedBox(height: 10),
+              if (fill)
+                Expanded(flex: 5, child: _bottomRow(d, fill: true))
+              else
+                _bottomRow(d, fill: false),
             ],
-          ),
+            );
+            if (fill) {
+              return SizedBox(height: maxH, child: Padding(padding: pad, child: body));
+            }
+            return SingleChildScrollView(padding: pad, child: body);
+          },
         );
       },
     );
+  }
+
+  Widget _chartRow(DashData d, List<ShopConn> shops, {required bool fill}) {
+    Widget trend({required bool expand}) => Panel(
+          dense: true,
+          expand: expand,
+          title: 'จำนวนคำสั่งซื้อ 7 วันล่าสุด',
+          trailing: const Padding(
+            padding: EdgeInsets.only(right: 8),
+            child: Wrap(
+              spacing: 14,
+              children: [
+                _Dot(color: Pal.shopee, text: 'Shopee'),
+                _Dot(color: Pal.tiktok, text: 'TikTok Shop'),
+                _Dot(color: Pal.lazada, text: 'Lazada'),
+              ],
+            ),
+          ),
+          pad: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+          child: expand
+              ? SizedBox.expand(child: _Trend(d))
+              : SizedBox(width: double.infinity, height: 200, child: _Trend(d)),
+        );
+    Widget conns({required bool expand}) => Panel(
+          dense: true,
+          expand: expand,
+          title: 'สถานะการเชื่อมต่อ',
+          trailing: Session.instance.isUserRole
+              ? null
+              : TextButton(
+                  onPressed: () => context.go('/connections'),
+                  child: const Text('ดูทั้งหมด →'),
+                ),
+          child: _ConnList(shops: shops, sapOn: _sapOn),
+        );
+    final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(flex: 2, child: trend(expand: true)),
+        const SizedBox(width: 10),
+        Expanded(child: conns(expand: true)),
+      ],
+    );
+    if (fill) return row;
+    return SizedBox(height: 236, child: row);
+  }
+
+  Widget _bottomRow(DashData d, {required bool fill}) {
+    final share = Panel(
+      dense: true,
+      expand: fill,
+      title: 'สัดส่วนคำสั่งซื้อ',
+      child: fill ? Center(child: _Share(d)) : SizedBox(height: 156, child: _Share(d)),
+    );
+    final recent = Panel(
+      dense: true,
+      expand: fill,
+      title: 'คำสั่งซื้อล่าสุด',
+      trailing: TextButton(
+        onPressed: () => context.go('/orders'),
+        child: const Text('ดูทั้งหมด →'),
+      ),
+      pad: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      child: _RecentOrders(
+        orders: _recentPage == 1 ? d.recent : _recent,
+        total: _recentPage == 1 ? d.totalOrders : _recentTotal,
+        page: _recentPage,
+        pageSize: _recentSize,
+        loading: _recentPage == 1 ? DashStore.instance.loading : _recentLoading,
+        onPage: (p) {
+          if (p == _recentPage) return;
+          setState(() => _recentPage = p);
+          _loadRecent();
+        },
+      ),
+    );
+    final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(flex: 5, child: share),
+        const SizedBox(width: 10),
+        Expanded(flex: 7, child: recent),
+      ],
+    );
+    if (fill) return row;
+    return IntrinsicHeight(child: row);
   }
 }
 
@@ -474,109 +473,67 @@ bool _skipped(Order o) => o.status == OrderStatus.cancelled || o.status == Order
 
 bool _hasSo(Order o) => o.sapDocNum != null && o.sapDocNum!.trim().isNotEmpty;
 
-bool _hasTr(Order o) {
-  final st = o.transferStatus.toLowerCase();
-  if (st.contains('success') || st.contains('done') || st.contains('complete') || st.contains('สำเร็จ')) return true;
-  if (o.transferDocNum.trim().isNotEmpty) return true;
-  final keys = <String>{
-    o.id,
-    if (_hasSo(o)) o.sapDocNum!,
-    if (_hasSo(o)) 'SO-${o.sapDocNum}',
-  };
-  for (final t in TransferStore.instance.rows) {
-    if (keys.contains(t.id) || keys.contains(t.referenceNo)) return true;
-    final parts = <String>{
-      ...t.salesOrderIds,
-      ...t.referenceNo.split(RegExp(r'[,;]+')).map((part) => part.trim()).where((part) => part.isNotEmpty),
-    };
-    if (parts.any(keys.contains)) return true;
-  }
-  return false;
-}
-
-bool _needsSo(Order o) => !_skipped(o) && !_hasSo(o);
-
-bool _needsTr(Order o) => !_skipped(o) && _hasSo(o) && !_hasTr(o);
-
-String? _weekHint(DashData d) {
-  final n = [d.shopeeWeek.length, d.tiktokWeek.length, d.lazadaWeek.length].fold<int>(0, math.max);
-  if (n < 6) return null;
-  double at(List<double> s, int i) => i < s.length ? s[i] : 0;
-  final days = [
-    for (var i = 0; i < n; i++) at(d.shopeeWeek, i) + at(d.tiktokWeek, i) + at(d.lazadaWeek, i),
-  ];
-  final prev = days.take(3).fold<double>(0, (a, b) => a + b);
-  final next = days.skip(n - 3).fold<double>(0, (a, b) => a + b);
-  if (prev <= 0) return null;
-  final pct = ((next - prev) / prev * 100).round();
-  if (pct == 0) return 'ไม่เปลี่ยนแปลงจากช่วงก่อน';
-  return pct > 0 ? '+$pct% จากช่วงก่อน' : '$pct% จากช่วงก่อน';
-}
+bool _hasDelivery(Order o) => (o.deliveryDocNum ?? '').trim().isNotEmpty;
 
 class _ConnList extends StatelessWidget {
-  const _ConnList({required this.shops, required this.sapOn, this.sapLast});
+  const _ConnList({required this.shops, required this.sapOn});
 
   final List<ShopConn> shops;
   final bool sapOn;
-  final DateTime? sapLast;
 
   @override
   Widget build(BuildContext context) {
-    final rows = [
-      for (final c in Channel.values)
-        shops.where((s) => s.channel == c && s.isReal).followedBy([ShopConn.empty(c)]).first,
+    final items = [
+      for (final c in Channel.values) _platformRow(context, c),
+      _sapRow(context),
     ];
     return Column(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) const Divider(height: 1),
-          _shopRow(context, rows[i]),
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) const Divider(height: 1, color: Pal.line),
+          items[i],
         ],
-        const Divider(height: 1),
-        _sapRow(context),
       ],
     );
   }
 
-  void _openShop(BuildContext context, ShopConn s) {
-    if (!s.isReal) {
-      context.go('/connections');
-      return;
-    }
-    context.go('/connections/${s.channel.name}/${Uri.encodeComponent(s.shopId)}');
-  }
+  List<ShopConn> _of(Channel c) => [for (final s in shops) if (s.channel == c && s.isReal) s];
 
-  Widget _shopRow(BuildContext context, ShopConn s) {
-    final expired = s.needsReauth;
-    final label = s.connected ? 'เชื่อมต่อแล้ว' : (expired ? 'token หมดอายุ' : 'ยังไม่เชื่อมต่อ');
-    final color = s.connected ? Pal.ok : (expired ? Pal.warn : Pal.err);
+  Widget _platformRow(BuildContext context, Channel c) {
+    final list = _of(c);
+    final total = list.length;
+    final live = list.where((s) => s.connected).length;
+    final complete = total > 0 && live == total;
     return _row(
-      leading: ChannelDot(channel: s.channel, size: 36),
-      title: s.channel.label,
-      status: label,
-      statusColor: color,
-      sync: s.lastSync,
-      onOpen: () => _openShop(context, s),
+      leading: ChannelDot(channel: c, size: 32),
+      title: c.label,
+      badge: pill(
+        '$live/$total ร้าน',
+        complete ? Pal.ok : const Color(0xFFC2410C),
+        complete ? Pal.okBg : const Color(0xFFFFEDD5),
+        size: 11,
+      ),
+      onOpen: () => context.go('/connections'),
     );
   }
 
   Widget _sapRow(BuildContext context) {
     return _row(
       leading: Container(
-        width: 36,
-        height: 36,
+        width: 32,
+        height: 32,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: Pal.primary,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(9),
         ),
-        child: const Text('SAP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 10, height: 1)),
+        child: const Text('SAP', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 9, height: 1)),
       ),
       title: 'SAP B1',
-      status: sapOn ? 'เชื่อมต่อแล้ว' : 'ยังไม่เชื่อมต่อ',
-      statusColor: sapOn ? Pal.ok : Pal.err,
-      sync: sapLast,
+      badge: sapOn
+          ? pill('เชื่อมต่อแล้ว', Pal.ok, Pal.okBg, size: 11)
+          : pill('ยังไม่เชื่อมต่อ', Pal.err, Pal.errBg, size: 11),
       onOpen: () => context.go('/settings'),
     );
   }
@@ -584,177 +541,159 @@ class _ConnList extends StatelessWidget {
   Widget _row({
     required Widget leading,
     required String title,
-    required String status,
-    required Color statusColor,
-    required DateTime? sync,
+    required Widget badge,
     required VoidCallback onOpen,
   }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          leading,
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(status, style: TextStyle(color: statusColor, fontWeight: FontWeight.w700, fontSize: 13)),
-              const SizedBox(height: 2),
-              Text(
-                'Sync ล่าสุด: ${sync == null ? '-' : dtFmt.format(sync)}',
-                style: const TextStyle(color: Pal.muted, fontSize: 11),
-              ),
-            ],
-          ),
-          if (!Session.instance.isUserRole)
-            PopupMenuButton<String>(
-              padding: EdgeInsets.zero,
-              tooltip: '',
-              onSelected: (_) => onOpen(),
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'open', child: Text('ดูรายละเอียด')),
-              ],
-              icon: const Icon(Icons.more_horiz, color: Pal.faint),
+    return InkWell(
+      onTap: Session.instance.isUserRole ? null : onOpen,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            leading,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
             ),
-        ],
+            badge,
+          ],
+        ),
       ),
     );
   }
 }
 
 class _RecentOrders extends StatelessWidget {
-  const _RecentOrders(this.orders);
+  const _RecentOrders({
+    required this.orders,
+    required this.total,
+    required this.page,
+    required this.pageSize,
+    required this.loading,
+    required this.onPage,
+  });
 
   final List<Order> orders;
-  static const _flex = [3, 2, 2, 2, 2, 2];
+  final int total;
+  final int page;
+  final int pageSize;
+  final bool loading;
+  final ValueChanged<int> onPage;
+  static const _flex = [3, 2, 2, 2, 2];
 
   @override
   Widget build(BuildContext context) {
     if (orders.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(child: Text('ไม่พบคำสั่งซื้อ', style: TextStyle(color: Pal.muted))),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: Text(loading ? 'กำลังโหลด...' : 'ไม่พบคำสั่งซื้อ', style: const TextStyle(color: Pal.muted))),
       );
     }
-    return Column(
+    final pages = (total / pageSize).ceil().clamp(1, 9999);
+    final cur = page.clamp(1, pages);
+    final start = (cur - 1) * pageSize;
+    final rows = orders;
+    final fromN = start + 1;
+    final toN = start + rows.length;
+    const head = ColoredBox(
+      color: Color(0xFFF1F5F9),
+      child: _MiniHead(cells: ['#', 'คำสั่งซื้อ', 'แพลตฟอร์ม', 'วันที่', 'ยอดรวม', 'สถานะ SAP'], flex: _flex),
+    );
+    final body = Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        const _MiniHead(cells: ['เลขที่คำสั่งซื้อ', 'แพลตฟอร์ม', 'วันที่', 'ยอดรวม', 'สถานะออเดอร์', 'SAP'], flex: _flex),
-        for (final o in orders)
-          _MiniRow(
-            flex: _flex,
-            onTap: () => context.go('/orders/${Uri.encodeComponent(o.id)}'),
-            cells: [
-              Tooltip(
-                message: o.id,
-                child: Text(
-                  o.id,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  softWrap: false,
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+        for (var i = 0; i < rows.length; i++) ...[
+          const Divider(height: 1, color: Pal.line),
+          ColoredBox(
+            color: i.isOdd ? const Color(0xFFF8FAFC) : Colors.white,
+            child: _MiniRow(
+              flex: _flex,
+              onTap: () => context.go('/orders/${Uri.encodeComponent(rows[i].id)}'),
+              cells: [
+                Text('${start + i + 1}', style: const TextStyle(color: Pal.muted, fontSize: 12)),
+                Tooltip(
+                  message: rows[i].id,
+                  child: Text(
+                    rows[i].id,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                  ),
                 ),
-              ),
-              Text(o.channel.shortLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-              Text(dayFmt.format(o.createdAt), maxLines: 1, style: const TextStyle(fontSize: 12, color: Pal.muted)),
-              Text(baht.format(o.total), maxLines: 1, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-              _dotStatus(_orderDot(o.status)),
-              _orderSap(o),
-            ],
+                Text(rows[i].channel.shortLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                Text(dayFmt.format(rows[i].createdAt), maxLines: 1, style: const TextStyle(fontSize: 12, color: Pal.muted)),
+                Text(baht.format(rows[i].total), maxLines: 1, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                _orderSap(rows[i]),
+              ],
+            ),
           ),
+        ],
       ],
     );
-  }
-
-  (Color, String) _orderDot(OrderStatus status) {
-    switch (status) {
-      case OrderStatus.unpaid:
-        return (Pal.primary, 'รอชำระเงิน');
-      case OrderStatus.pending:
-        return (Pal.warn, 'รอดำเนินการ');
-      case OrderStatus.shipping:
-        return (const Color(0xFF0369A1), 'กำลังจัดส่ง');
-      case OrderStatus.success:
-        return (Pal.ok, 'สำเร็จ');
-      case OrderStatus.cancelled:
-        return (Pal.err, 'ยกเลิก');
-      case OrderStatus.returned:
-        return (const Color(0xFF7C3AED), 'คืนสินค้า/คืนเงิน');
+    final footer = Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'แสดง $fromN - $toN จาก $total รายการ',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Pal.muted, fontSize: 12),
+            ),
+          ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Pages(page: cur, total: pages, onTap: onPage),
+          ),
+        ],
+      ),
+    );
+    Widget frame(Widget child) {
+      return Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Pal.line),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: child,
+      );
     }
+
+    return LayoutBuilder(
+      builder: (context, box) {
+        if (!box.maxHeight.isFinite) {
+          return Column(mainAxisSize: MainAxisSize.min, children: [frame(Column(children: [head, body])), footer]);
+        }
+        return Column(
+          children: [
+            Expanded(
+              child: frame(
+                Column(
+                  children: [
+                    head,
+                    Expanded(child: VScrollPane(child: body)),
+                  ],
+                ),
+              ),
+            ),
+            footer,
+          ],
+        );
+      },
+    );
   }
 
   Widget _orderSap(Order o) {
     if (_skipped(o)) {
       return const Text('—', style: TextStyle(color: Pal.muted, fontSize: 12));
     }
-    if (_needsSo(o)) return waitSoPill(size: 11);
-    if (_needsTr(o)) return waitTrPill(size: 11);
-    return soCreatedPill(size: 11);
+    if (_hasDelivery(o)) return dashDeliveryPill(size: 11);
+    if (_hasSo(o)) return dashSoPill(size: 11);
+    return waitSoPill(size: 11);
   }
-}
-
-class _RecentLogs extends StatelessWidget {
-  const _RecentLogs(this.logs);
-
-  final List<SyncRow> logs;
-  static const _flex = [2, 2, 2, 3];
-
-  @override
-  Widget build(BuildContext context) {
-    if (logs.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 24),
-        child: Center(child: Text('ไม่พบ Sync Log', style: TextStyle(color: Pal.muted))),
-      );
-    }
-    return Column(
-      children: [
-        const _MiniHead(cells: ['เวลา', 'แพลตฟอร์ม', 'ผลการ Sync', 'รายละเอียด'], flex: _flex),
-        for (final l in logs)
-          _MiniRow(
-            flex: _flex,
-            onTap: Session.instance.isUserRole ? null : () => context.go('/sync-log/${l.routeId}'),
-            cells: [
-              Text(timeFmt.format(l.time), maxLines: 1, style: const TextStyle(fontSize: 12, color: Pal.muted)),
-              Text(l.channel.shortLabel, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-              _dotStatus(l.status == SyncStatus.success
-                  ? (Pal.ok, 'สำเร็จ')
-                  : l.status == SyncStatus.error
-                      ? (Pal.err, 'ล้มเหลว')
-                      : l.status == SyncStatus.partial
-                          ? (Pal.warn, 'สำเร็จบางส่วน')
-                          : (const Color(0xFF1D4ED8), 'กำลังซิงก์')),
-              Text(
-                l.dashDetail,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ],
-          ),
-      ],
-    );
-  }
-}
-
-Widget _dotStatus((Color, String) s) {
-  return Row(
-    children: [
-      Container(width: 8, height: 8, decoration: BoxDecoration(color: s.$1, shape: BoxShape.circle)),
-      const SizedBox(width: 6),
-      Flexible(
-        child: Text(
-          s.$2,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-        ),
-      ),
-    ],
-  );
 }
 
 class _MiniHead extends StatelessWidget {
@@ -766,14 +705,20 @@ class _MiniHead extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Row(
         children: [
           for (var i = 0; i < cells.length; i++)
-            Expanded(
-              flex: i < flex.length ? flex[i] : 1,
-              child: Text(cells[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11, color: Pal.muted, fontWeight: FontWeight.w700)),
-            ),
+            if (i == 0)
+              SizedBox(
+                width: 40,
+                child: Text(cells[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: tableHead),
+              )
+            else
+              Expanded(
+                flex: i - 1 < flex.length ? flex[i - 1] : 1,
+                child: Text(cells[i], maxLines: 1, overflow: TextOverflow.ellipsis, style: tableHead),
+              ),
         ],
       ),
     );
@@ -789,66 +734,204 @@ class _MiniRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        child: Row(
-          children: [
-            for (var i = 0; i < cells.length; i++)
-              Expanded(
-                flex: i < flex.length ? flex[i] : 1,
-                child: Align(alignment: Alignment.centerLeft, child: cells[i]),
-              ),
-          ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Row(
+            children: [
+              for (var i = 0; i < cells.length; i++)
+                if (i == 0)
+                  SizedBox(width: 40, child: Align(alignment: Alignment.centerLeft, child: cells[i]))
+                else
+                  Expanded(
+                    flex: i - 1 < flex.length ? flex[i - 1] : 1,
+                    child: Align(alignment: Alignment.centerLeft, child: cells[i]),
+                  ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _Trend extends StatelessWidget {
+class _Trend extends StatefulWidget {
   const _Trend(this.d);
 
   final DashData d;
 
   @override
+  State<_Trend> createState() => _TrendState();
+}
+
+class _TrendState extends State<_Trend> {
+  int? _hover;
+  Offset? _cursor;
+
+  @override
   Widget build(BuildContext context) {
-    final series = <(List<double>, Color)>[
-      (d.shopeeWeek, Pal.shopee),
-      (d.tiktokWeek, Pal.tiktok),
-      (d.lazadaWeek, Pal.lazada),
-    ].where((s) => s.$1.isNotEmpty).toList();
+    final d = widget.d;
+    final named = <(List<double>, Color, String)>[
+      (d.shopeeWeek, Pal.shopee, 'Shopee'),
+      (d.tiktokWeek, Pal.tiktok, 'TikTok Shop'),
+      (d.lazadaWeek, Pal.lazada, 'Lazada'),
+    ];
+    final series = [for (final s in named) (s.$1, s.$2)];
     final values = [for (final s in series) ...s.$1].where((v) => v.isFinite);
     final peak = values.fold<double>(0, (a, b) => a > b ? a : b);
-    final maxY = peak < 10 ? 10.0 : peak * 1.2;
-    if (series.isEmpty) {
+    if (peak <= 0 && d.weekLabels.isEmpty) {
       return const Center(child: Text('ไม่พบข้อมูล', style: TextStyle(color: Pal.muted)));
     }
-    return CustomPaint(
-      painter: _TrendPainter(labels: d.weekLabels, series: series, maxY: maxY),
-      child: const SizedBox.expand(),
+    final n = math.max(
+      d.weekLabels.length,
+      series.map((s) => s.$1.length).fold<int>(0, (a, b) => a > b ? a : b),
+    );
+    return LayoutBuilder(
+      builder: (context, box) {
+        final size = Size(box.maxWidth, box.maxHeight);
+        return MouseRegion(
+          onHover: (e) {
+            final i = _barHitIndex(e.localPosition, size, n);
+            setState(() {
+              _hover = i;
+              _cursor = e.localPosition;
+            });
+          },
+          onExit: (_) => setState(() {
+            _hover = null;
+            _cursor = null;
+          }),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              CustomPaint(
+                size: size,
+                painter: _BarPainter(labels: d.weekLabels, series: series, maxY: _niceMax(peak), hover: _hover),
+              ),
+              if (_hover != null && _cursor != null)
+                _BarTip(
+                  cursor: _cursor!,
+                  size: size,
+                  label: _hover! < d.weekLabels.length ? d.weekLabels[_hover!] : '${_hover! + 1}',
+                  rows: [
+                    for (final s in named)
+                      (s.$3, s.$2, _hover! < s.$1.length ? s.$1[_hover!].round() : 0),
+                  ],
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
 
-class _TrendPainter extends CustomPainter {
-  _TrendPainter({
+int? _barHitIndex(Offset pos, Size size, int n) {
+  if (n <= 0 || size.width <= 0) return null;
+  const left = 44.0;
+  const right = 8.0;
+  const top = 20.0;
+  const bottom = 28.0;
+  final w = size.width - left - right;
+  if (w <= 0) return null;
+  if (pos.dx < left || pos.dx > left + w) return null;
+  if (pos.dy < top || pos.dy > size.height - bottom) return null;
+  final i = ((pos.dx - left) / (w / n)).floor();
+  if (i < 0 || i >= n) return null;
+  return i;
+}
+
+class _BarTip extends StatelessWidget {
+  const _BarTip({
+    required this.cursor,
+    required this.size,
+    required this.label,
+    required this.rows,
+  });
+
+  final Offset cursor;
+  final Size size;
+  final String label;
+  final List<(String, Color, int)> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    const tipW = 188.0;
+    var left = cursor.dx + 12;
+    var top = cursor.dy - 88;
+    if (left + tipW > size.width) left = cursor.dx - tipW - 12;
+    if (left < 0) left = 8;
+    if (top < 0) top = cursor.dy + 16;
+    return Positioned(
+      left: left,
+      top: top,
+      child: IgnorePointer(
+        child: Material(
+          color: Colors.white,
+          elevation: 10,
+          shadowColor: const Color(0x33000000),
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
+            child: SizedBox(
+              width: 162,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(label, style: const TextStyle(color: Pal.muted, fontSize: 11, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  for (var i = 0; i < rows.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Container(width: 8, height: 8, decoration: BoxDecoration(color: rows[i].$2, shape: BoxShape.circle)),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(rows[i].$1, style: const TextStyle(fontSize: 12))),
+                        Text(nFmt.format(rows[i].$3), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+double _niceMax(double peak) {
+  if (peak <= 0) return 10;
+  final padded = peak * 1.08;
+  final mag = math.pow(10, (math.log(padded) / math.ln10).floor()).toDouble();
+  final n = padded / mag;
+  final nice = n <= 1 ? 1.0 : n <= 2 ? 2.0 : n <= 2.5 ? 2.5 : n <= 5 ? 5.0 : 10.0;
+  return nice * mag;
+}
+
+class _BarPainter extends CustomPainter {
+  _BarPainter({
     required this.labels,
     required this.series,
     required this.maxY,
+    this.hover,
   });
 
   final List<String> labels;
   final List<(List<double>, Color)> series;
   final double maxY;
+  final int? hover;
 
   @override
   void paint(Canvas canvas, Size size) {
-    const left = 36.0;
+    const left = 44.0;
     const bottom = 28.0;
-    const top = 8.0;
+    const top = 20.0;
     const right = 8.0;
     final w = size.width - left - right;
     final h = size.height - top - bottom;
@@ -863,7 +946,7 @@ class _TrendPainter extends CustomPainter {
       canvas.drawLine(Offset(left, y), Offset(left + w, y), grid);
       final tp = TextPainter(
         text: TextSpan(
-          text: (maxY * (1 - i / rows)).round().toString(),
+          text: nFmt.format((maxY * (1 - i / rows)).round()),
           style: const TextStyle(fontSize: 11, color: Pal.muted),
         ),
         textDirection: TextDirection.ltr,
@@ -871,53 +954,57 @@ class _TrendPainter extends CustomPainter {
       tp.paint(canvas, Offset(left - 6 - tp.width, y - tp.height / 2));
     }
 
-    final n = series.map((s) => s.$1.length).fold<int>(0, (a, b) => a > b ? a : b);
+    final n = math.max(
+      labels.length,
+      series.map((s) => s.$1.length).fold<int>(0, (a, b) => a > b ? a : b),
+    );
     if (n == 0) return;
 
-    Offset at(int i, double raw) {
-      final v = raw.isFinite ? raw.clamp(0, maxY) : 0.0;
-      final x = n == 1 ? left + w / 2 : left + w * i / (n - 1);
-      final y = top + h * (1 - v / maxY);
-      return Offset(x, y);
-    }
+    final groupW = w / n;
+    final innerPad = groupW * 0.18;
+    final inner = (groupW - innerPad).clamp(4.0, groupW);
+    final barW = inner / series.length;
 
-    for (final s in series) {
-      if (s.$1.isEmpty) continue;
-      final path = Path();
-      for (var i = 0; i < s.$1.length; i++) {
-        final p = at(i, s.$1[i]);
-        if (i == 0) {
-          path.moveTo(p.dx, p.dy);
-        } else {
-          path.lineTo(p.dx, p.dy);
-        }
-      }
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = s.$2
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.4
-          ..strokeJoin = StrokeJoin.round
-          ..strokeCap = StrokeCap.round,
+    if (hover != null && hover! >= 0 && hover! < n) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left + hover! * groupW, top, groupW, h),
+          const Radius.circular(6),
+        ),
+        Paint()..color = const Color(0xFFF1F5F9),
       );
     }
 
-    final count = labels.isEmpty ? n : math.min(labels.length, n);
-    for (var i = 0; i < count; i++) {
-      final text = labels.isEmpty ? '${i + 1}' : labels[i];
+    for (var i = 0; i < n; i++) {
+      final groupX = left + i * groupW + innerPad / 2;
+      for (var s = 0; s < series.length; s++) {
+        final raw = i < series[s].$1.length ? series[s].$1[i] : 0.0;
+        final v = raw.isFinite ? raw.clamp(0, maxY) : 0.0;
+        final bh = h * (v / maxY);
+        if (bh <= 0) continue;
+        final x = groupX + s * barW;
+        final rect = Rect.fromLTWH(x, top + h - bh, barW * 0.82, bh);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, const Radius.circular(3)),
+          Paint()..color = series[s].$2,
+        );
+      }
+    }
+
+    for (var i = 0; i < n; i++) {
+      final text = i < labels.length ? labels[i] : '${i + 1}';
       final tp = TextPainter(
         text: TextSpan(text: text, style: const TextStyle(fontSize: 11, color: Pal.muted)),
         textDirection: TextDirection.ltr,
       )..layout();
-      final x = (n == 1 ? left + w / 2 : left + w * i / (n - 1)) - tp.width / 2;
+      final x = left + i * groupW + groupW / 2 - tp.width / 2;
       tp.paint(canvas, Offset(x.clamp(0, size.width - tp.width), top + h + 8));
     }
   }
 
   @override
-  bool shouldRepaint(covariant _TrendPainter old) =>
-      old.labels != labels || old.series != series || old.maxY != maxY;
+  bool shouldRepaint(covariant _BarPainter old) =>
+      old.labels != labels || old.series != series || old.maxY != maxY || old.hover != hover;
 }
 
 class _Share extends StatelessWidget {
@@ -935,42 +1022,47 @@ class _Share extends StatelessWidget {
     if (slices.isEmpty) {
       return const Center(child: Text('ไม่พบข้อมูล', style: TextStyle(color: Pal.muted)));
     }
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Row(
-      children: [
-        SizedBox(
-          width: 168,
-          height: 168,
-          child: Stack(
-            alignment: Alignment.center,
+    return LayoutBuilder(
+      builder: (context, box) {
+        final size = box.maxHeight.isFinite && box.maxHeight > 0
+            ? box.maxHeight.clamp(120.0, 176.0)
+            : 132.0;
+        return Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              CustomPaint(size: const Size(168, 168), painter: _PiePainter(slices)),
+              SizedBox(
+                width: size,
+                height: size,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CustomPaint(size: Size(size, size), painter: _PiePainter(slices)),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(nFmt.format(d.totalOrders), style: TextStyle(fontSize: size >= 150 ? 20 : 18, fontWeight: FontWeight.w800)),
+                        const Text('รายการ', style: TextStyle(color: Pal.muted, fontSize: 11)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
               Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${d.totalOrders}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-                  const Text('รายการ', style: TextStyle(color: Pal.muted, fontSize: 12)),
+                  for (var i = 0; i < slices.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 6),
+                    _Dot(color: slices[i].$2, text: '${slices[i].$3} ${slices[i].$1.toStringAsFixed(0)}% (${nFmt.format(slices[i].$4)})'),
+                  ],
                 ],
               ),
             ],
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < slices.length; i++) ...[
-                if (i > 0) const SizedBox(height: 10),
-                _Dot(color: slices[i].$2, text: '${slices[i].$3}  ${slices[i].$1.toStringAsFixed(0)}% (${slices[i].$4})'),
-              ],
-            ],
-          ),
-        ),
-      ],
-    ),
+        );
+      },
     );
   }
 }
@@ -1041,7 +1133,7 @@ class _Dot extends StatelessWidget {
       children: [
         Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 8),
-        Flexible(child: Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500))),
+        Flexible(child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
       ],
     );
   }

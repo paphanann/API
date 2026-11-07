@@ -3,13 +3,84 @@ import 'package:flutter/material.dart';
 import '../app/theme.dart';
 import '../core/format.dart';
 
+enum DatePeriod { today, last7, last30, custom }
+
+extension DatePeriodX on DatePeriod {
+  String get label {
+    switch (this) {
+      case DatePeriod.today:
+        return 'วันนี้';
+      case DatePeriod.last7:
+        return '7 วันล่าสุด';
+      case DatePeriod.last30:
+        return '30 วันล่าสุด';
+      case DatePeriod.custom:
+        return 'กำหนดเอง';
+    }
+  }
+}
+
+(DateTime from, DateTime to) rangeOfPeriod(DatePeriod period) {
+  final today = dateOnly(DateTime.now());
+  switch (period) {
+    case DatePeriod.today:
+      return (today, today);
+    case DatePeriod.last7:
+      return (today.subtract(const Duration(days: 6)), today);
+    case DatePeriod.last30:
+      return (today.subtract(const Duration(days: 29)), today);
+    case DatePeriod.custom:
+      return (today.subtract(const Duration(days: 29)), today);
+  }
+}
+
+DatePeriod periodOfRange(DateTime? from, DateTime? to) {
+  if (from == null || to == null) return DatePeriod.custom;
+  final today = dateOnly(DateTime.now());
+  final f = dateOnly(from);
+  final t = dateOnly(to);
+  if (t != today) return DatePeriod.custom;
+  if (f == today) return DatePeriod.today;
+  if (f == today.subtract(const Duration(days: 6))) return DatePeriod.last7;
+  if (f == today.subtract(const Duration(days: 29))) return DatePeriod.last30;
+  return DatePeriod.custom;
+}
+
+class PeriodField extends StatelessWidget {
+  const PeriodField({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.width = 160,
+  });
+
+  final DatePeriod value;
+  final ValueChanged<DatePeriod> onChanged;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return Drop<DatePeriod>(
+      label: 'ช่วงเวลา',
+      value: value,
+      width: width,
+      onChanged: (v) {
+        if (v != null) onChanged(v);
+      },
+      items: [
+        for (final p in DatePeriod.values) DropdownMenuItem(value: p, child: Text(p.label)),
+      ],
+    );
+  }
+}
+
 class DateRangeField extends StatelessWidget {
   const DateRangeField({
     super.key,
     required this.from,
     required this.to,
     required this.onTap,
-    this.width = 240,
+    this.width = 268,
     this.label = 'ช่วงวันที่',
   });
 
@@ -36,6 +107,7 @@ class DateRangeField extends StatelessWidget {
               decoration: const InputDecoration(
                 isDense: true,
                 prefixIcon: Icon(Icons.calendar_today_outlined, size: 18),
+                prefixIconConstraints: BoxConstraints(minWidth: 40, minHeight: 40),
                 contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               ),
               child: Text(
@@ -44,6 +116,8 @@ class DateRangeField extends StatelessWidget {
                     : dateOnly(from!) == dateOnly(to!)
                         ? dayFmt.format(from!)
                         : '${dayFmt.format(from!)} - ${dayFmt.format(to!)}',
+                maxLines: 1,
+                overflow: TextOverflow.clip,
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 13,

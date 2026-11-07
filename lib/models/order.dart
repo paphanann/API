@@ -42,6 +42,11 @@ class Order {
     this.shippingAmount,
     this.listedTotal,
     this.sapDocNum,
+    this.deliveryDocNum,
+    this.sapUi = '',
+    this.invoiceDocNum,
+    this.invoiceStatus = '',
+    this.settlementStatus = '',
     this.syncStatus = '',
     this.lastSyncedAt,
     this.itemCount = 0,
@@ -84,6 +89,17 @@ class Order {
           final v = pickStr(m, ['SapDocNum', 'sapDocNum', 'DocNum', 'docNum'], or: '');
           return v.isEmpty ? null : v;
         }(),
+        deliveryDocNum: () {
+          final v = pickStr(m, ['DeliveryDocNum', 'deliveryDocNum', 'DeliveryNum', 'deliveryNum', 'SapDeliveryDocNum', 'sapDeliveryDocNum', 'DeliveryDoc', 'deliveryDoc'], or: '');
+          return v.isEmpty ? null : v;
+        }(),
+        sapUi: pickStr(m, ['SapUi', 'sapUi'], or: ''),
+        invoiceDocNum: () {
+          final v = pickStr(m, ['InvoiceDocNum', 'invoiceDocNum'], or: '');
+          return v.isEmpty ? null : v;
+        }(),
+        invoiceStatus: pickStr(m, ['InvoiceStatus', 'invoiceStatus'], or: ''),
+        settlementStatus: pickStr(m, ['SettlementStatus', 'settlementStatus'], or: ''),
         syncStatus: pickStr(m, ['SyncStatus', 'syncStatus'], or: ''),
         lastSyncedAt: pickTime(m, ['LastSyncedAt', 'lastSyncedAt', 'SyncedAt', 'syncedAt']),
         itemCount: pickInt(m, ['itemCount', 'ItemCount', 'lineCount', 'LineCount'], or: 0),
@@ -204,6 +220,17 @@ class Order {
         final v = pickStr(m, ['SapDocNum', 'sapDocNum', 'DocNum', 'docNum'], or: '');
         return v.isEmpty ? null : v;
       }(),
+      deliveryDocNum: () {
+        final v = pickStr(m, ['DeliveryDocNum', 'deliveryDocNum', 'DeliveryNum', 'deliveryNum', 'SapDeliveryDocNum', 'sapDeliveryDocNum', 'DeliveryDoc', 'deliveryDoc'], or: '');
+        return v.isEmpty ? null : v;
+      }(),
+      sapUi: pickStr(m, ['SapUi', 'sapUi'], or: ''),
+      invoiceDocNum: () {
+        final v = pickStr(m, ['InvoiceDocNum', 'invoiceDocNum'], or: '');
+        return v.isEmpty ? null : v;
+      }(),
+      invoiceStatus: pickStr(m, ['InvoiceStatus', 'invoiceStatus'], or: ''),
+      settlementStatus: pickStr(m, ['SettlementStatus', 'settlementStatus'], or: ''),
       syncStatus: pickStr(m, ['SyncStatus', 'syncStatus'], or: ''),
       lastSyncedAt: pickTime(m, ['LastSyncedAt', 'lastSyncedAt', 'SyncedAt', 'syncedAt']),
       itemCount: pickInt(m, ['itemCount', 'ItemCount', 'lineCount', 'LineCount'], or: lines.length),
@@ -232,6 +259,11 @@ class Order {
   final double? shippingAmount;
   final double? listedTotal;
   final String? sapDocNum;
+  final String? deliveryDocNum;
+  final String sapUi;
+  final String? invoiceDocNum;
+  final String invoiceStatus;
+  final String settlementStatus;
   final String syncStatus;
   final DateTime? lastSyncedAt;
   final int itemCount;

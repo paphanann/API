@@ -4,6 +4,15 @@ import 'enums.dart';
 import 'order.dart';
 import 'shop.dart';
 
+List<Order> _recentOrders(Map<String, dynamic> m) {
+  final raw = pick(m, ['recent', 'Recent', 'orders', 'Orders']);
+  if (raw is! List) return const [];
+  return [
+    for (final row in raw)
+      if (row is Map) Order.fromApi(Map<String, dynamic>.from(row), listOnly: true),
+  ];
+}
+
 class DashData {
   const DashData({
     required this.totalOrders,
@@ -17,6 +26,12 @@ class DashData {
     required this.shopeeShare,
     required this.tiktokShare,
     required this.lazadaShare,
+    this.productCount = 0,
+    this.soCount = 0,
+    this.deliveryCount = 0,
+    this.waitSo = 0,
+    this.transferCount = 0,
+    this.recent = const [],
   });
 
   factory DashData.empty() => const DashData(
@@ -60,6 +75,12 @@ class DashData {
       shopeeShare: pickDouble(m, ['shopeeShare', 'ShopeeShare']),
       tiktokShare: pickDouble(m, ['tiktokShare', 'TiktokShare', 'TikTokShare']),
       lazadaShare: pickDouble(m, ['lazadaShare', 'LazadaShare']),
+      productCount: pickInt(m, ['productCount', 'ProductCount']),
+      soCount: pickInt(m, ['soCount', 'SoCount']),
+      deliveryCount: pickInt(m, ['deliveryCount', 'DeliveryCount']),
+      waitSo: pickInt(m, ['waitSo', 'WaitSo']),
+      transferCount: pickInt(m, ['transferCount', 'TransferCount', 'trCount', 'TrCount']),
+      recent: _recentOrders(m),
     );
   }
 
@@ -86,6 +107,11 @@ class DashData {
       shopeeShare: share(Channel.shopee),
       tiktokShare: share(Channel.tiktok),
       lazadaShare: share(Channel.lazada),
+      productCount: 0,
+      soCount: orders.where((o) => o.status != OrderStatus.cancelled && o.status != OrderStatus.returned && (o.sapDocNum ?? '').trim().isNotEmpty).length,
+      deliveryCount: orders.where((o) => o.status != OrderStatus.cancelled && o.status != OrderStatus.returned && (o.deliveryDocNum ?? '').trim().isNotEmpty).length,
+      waitSo: orders.where((o) => o.status != OrderStatus.cancelled && o.status != OrderStatus.returned && (o.sapDocNum ?? '').trim().isEmpty).length,
+      transferCount: orders.where((o) => o.transferDocNum.trim().isNotEmpty).length,
     );
   }
 
@@ -100,6 +126,12 @@ class DashData {
   final double shopeeShare;
   final double tiktokShare;
   final double lazadaShare;
+  final int productCount;
+  final int soCount;
+  final int deliveryCount;
+  final int waitSo;
+  final int transferCount;
+  final List<Order> recent;
 
   bool get hasStats => totalOrders > 0 || pendingOrders > 0 || successOrders > 0 || connected > 0;
   bool get hasCharts => shopeeWeek.isNotEmpty || tiktokWeek.isNotEmpty || lazadaWeek.isNotEmpty;
@@ -117,6 +149,12 @@ class DashData {
       shopeeShare: shopeeShare > 0 ? shopeeShare : live.shopeeShare,
       tiktokShare: tiktokShare > 0 ? tiktokShare : live.tiktokShare,
       lazadaShare: lazadaShare > 0 ? lazadaShare : live.lazadaShare,
+      productCount: productCount > 0 ? productCount : live.productCount,
+      soCount: soCount > 0 ? soCount : live.soCount,
+      deliveryCount: deliveryCount > 0 ? deliveryCount : live.deliveryCount,
+      waitSo: waitSo > 0 ? waitSo : live.waitSo,
+      transferCount: transferCount > 0 ? transferCount : live.transferCount,
+      recent: recent.isNotEmpty ? recent : live.recent,
     );
   }
 }

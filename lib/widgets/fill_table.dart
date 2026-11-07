@@ -3,11 +3,122 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
-/// ตารางเลื่อนข้างได้ — มีแถบเลื่อนล่าง และลากด้วยเมาส์ได้บนเว็บ
-class FillTable extends StatefulWidget {
-  const FillTable({super.key, required this.child, this.minWidth = 0, this.viewportWidth});
+import '../app/theme.dart';
+import 'filters.dart';
+
+/// ล็อกความสูงตามพื้นที่ที่เหลือ เลื่อนเฉพาะเนื้อหาในกรอบ
+class VScrollPane extends StatelessWidget {
+  const VScrollPane({super.key, required this.child});
 
   final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRect(
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: true),
+        child: SingleChildScrollView(primary: false, child: child),
+      ),
+    );
+  }
+}
+
+/// หัวคอลัมน์ล็อกไว้ด้านบน เลื่อนเฉพาะแถวข้อมูล (เลื่อนข้างแล้วหัวตามด้วย)
+class StickyTable extends StatelessWidget {
+  const StickyTable({
+    super.key,
+    required this.headers,
+    required this.rows,
+    this.widths = const [],
+    this.minWidth = 0,
+    this.fill = true,
+  });
+
+  final List<Widget> headers;
+  final List<List<Widget>> rows;
+  final List<TableColumnWidth> widths;
+  final double minWidth;
+  final bool fill;
+
+  @override
+  Widget build(BuildContext context) {
+    final cols = headers.length;
+    final columnWidths = <int, TableColumnWidth>{
+      for (var i = 0; i < cols; i++) i: i < widths.length ? widths[i] : const FlexColumnWidth(),
+    };
+
+    Widget pad(Widget child, {required bool head}) {
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: head ? 10 : 8),
+        child: Align(alignment: Alignment.centerLeft, child: child),
+      );
+    }
+
+    Table make(List<TableRow> children) {
+      return Table(
+        columnWidths: columnWidths,
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        children: children,
+      );
+    }
+
+    final header = DecoratedBox(
+      decoration: const BoxDecoration(
+        color: Color(0xFFF8FAFC),
+        border: Border(bottom: BorderSide(color: Pal.line)),
+      ),
+      child: DefaultTextStyle.merge(
+        style: tableHead,
+        child: make([
+          TableRow(children: [for (final x in headers) pad(x, head: true)]),
+        ]),
+      ),
+    );
+
+    final body = make([
+      for (var i = 0; i < rows.length; i++)
+        TableRow(
+          decoration: BoxDecoration(
+            color: i.isOdd ? const Color(0xFFF8FAFC) : Colors.white,
+            border: i == rows.length - 1 ? null : const Border(bottom: BorderSide(color: Pal.line)),
+          ),
+          children: [for (final x in rows[i]) pad(x, head: false)],
+        ),
+    ]);
+
+    return LayoutBuilder(
+      builder: (context, box) {
+        final vw = box.maxWidth.isFinite ? box.maxWidth : 0.0;
+        if (vw <= 0) return const SizedBox.shrink();
+        final w = math.max(minWidth, vw);
+        final h = box.maxHeight;
+        final lock = fill && h.isFinite;
+        final table = Column(
+          mainAxisSize: lock ? MainAxisSize.max : MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            if (lock) Expanded(child: VScrollPane(child: body)) else body,
+          ],
+        );
+        return ClipRect(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            primary: false,
+            child: SizedBox(width: w, height: lock ? h : null, child: table),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// ตารางเลื่อนข้างได้ — มีแถบเลื่อนล่าง และลากด้วยเมาส์ได้บนเว็บ
+class FillTable extends StatefulWidget {
+  const FillTable({super.key, required this.child, this.header, this.minWidth = 0, this.viewportWidth});
+
+  final Widget child;
+  final Widget? header;
   final double minWidth;
   final double? viewportWidth;
 
@@ -44,6 +155,33 @@ class _FillTableState extends State<FillTable> {
           return const IgnorePointer(child: SizedBox(width: 1, height: 1));
         }
         final minW = math.max(widget.minWidth, parentW);
+        final fit = box.maxHeight.isFinite && box.maxHeight > 0;
+        Widget hTable(double? height) {
+          return SingleChildScrollView(
+            controller: _scroll,
+            scrollDirection: Axis.horizontal,
+            primary: false,
+            child: SizedBox(
+              width: minW,
+              height: height,
+              child: widget.header == null || height == null
+                  ? widget.child
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        widget.header!,
+                        Expanded(
+                          child: ScrollConfiguration(
+                            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: true),
+                            child: ClipRect(child: SingleChildScrollView(primary: false, child: widget.child)),
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          );
+        }
+
         return ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(
             scrollbars: false,
@@ -56,12 +194,21 @@ class _FillTableState extends State<FillTable> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SingleChildScrollView(
-                controller: _scroll,
-                scrollDirection: Axis.horizontal,
-                primary: false,
-                child: SizedBox(width: minW, child: widget.child),
-              ),
+              if (fit)
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, inner) {
+                      final h = inner.maxHeight.isFinite ? inner.maxHeight : null;
+                      if (widget.header != null && h != null) return hTable(h);
+                      return ScrollConfiguration(
+                        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: true),
+                        child: ClipRect(child: SingleChildScrollView(primary: false, child: hTable(null))),
+                      );
+                    },
+                  ),
+                )
+              else
+                hTable(null),
               Padding(
                 padding: const EdgeInsets.only(top: 10, bottom: 4),
                 child: _HScrollBar(controller: _scroll, viewWidth: parentW, contentWidth: minW),

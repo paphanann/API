@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
+import '../core/api.dart';
 import '../core/format.dart';
+import '../models/models.dart';
 import '../stores/stores.dart';
 
 OverlayEntry? _toast;
@@ -147,6 +149,83 @@ class LastSyncButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 18),
         ),
       ),
+    );
+  }
+}
+
+DateTime? lastMarketplaceSyncAt() {
+  DateTime? last;
+  for (final s in ShopStore.instance.realShops) {
+    final t = s.lastSync;
+    if (t != null && (last == null || t.isAfter(last))) last = t;
+  }
+  for (final l in SyncLogStore.instance.logs) {
+    if (l.status != SyncStatus.success && l.status != SyncStatus.partial) continue;
+    if (last == null || l.time.isAfter(last)) last = l.time;
+  }
+  return last;
+}
+
+class TopBarLastSync extends StatelessWidget {
+  const TopBarLastSync({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        ShopStore.instance,
+        SyncLogStore.instance,
+      ]),
+      builder: (context, _) => LastSyncLabel(lastSync: lastMarketplaceSyncAt()),
+    );
+  }
+}
+
+class HeaderSyncActions extends StatelessWidget {
+  const HeaderSyncActions({super.key, this.onDone, this.showLabel = true});
+
+  final Future<void> Function()? onDone;
+  final bool showLabel;
+
+  Future<void> _syncNow(BuildContext context) async {
+    try {
+      await MarketplaceSyncStore.instance.syncNow(force: false);
+      await Future.wait([
+        ShopStore.instance.load(),
+        DashStore.instance.load(keepFilter: true),
+      ]);
+      if (onDone != null) await onDone!();
+      if (!context.mounted) return;
+      await showSystemStatusSnack(context, reload: false);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        MarketplaceSyncStore.instance,
+        ShopStore.instance,
+        SyncLogStore.instance,
+      ]),
+      builder: (context, _) {
+        final syncing = MarketplaceSyncStore.instance.syncing;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            LastSyncButton(syncing: syncing, onSync: syncing ? null : () => _syncNow(context)),
+            if (showLabel) ...[
+              const SizedBox(width: 12),
+              LastSyncLabel(lastSync: lastMarketplaceSyncAt()),
+            ],
+          ],
+        );
+      },
     );
   }
 }

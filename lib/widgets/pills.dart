@@ -43,18 +43,45 @@ Widget syncPill(SyncStatus s) {
 
 Widget orderSyncPill(String? raw) {
   final v = (raw ?? '').toLowerCase();
-  if (v.contains('sap_ok') || v.contains('sapok') || v == 'ok') {
+  if (v == 'so_fail') return pill('ใบ SO ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+  if (v == 'so_ok') return pill('สร้างใบ SO สำเร็จ', const Color(0xFF15803D), Pal.okBg);
+  if (v == 'delivery_fail') return pill('Delivery ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+  if (v == 'delivery_wait') return pill('รอสร้าง Delivery', const Color(0xFFB45309), Pal.warnBg);
+  if (v == 'delivery_ok') return pill('สร้าง Delivery สำเร็จ', const Color(0xFF15803D), Pal.okBg);
+  if (v == 'invoice_fail') return pill('Invoice ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+  if (v == 'invoice_wait') return pill('รอสร้าง Invoice', const Color(0xFFB45309), Pal.warnBg);
+  if (v == 'cancelled' || v.contains('cancel')) return pill('ยกเลิก', const Color(0xFFB91C1C), Pal.errBg);
+  if (v == 'ok' || v.contains('sap_ok') || v.contains('sapok')) {
     return pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg);
   }
+  if (v.contains('invoice_error')) return pill('Invoice ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+  if (v.contains('delivery_error')) return pill('Delivery ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
   if (v.contains('sap_error') || v.contains('error')) {
-    return pill('SAP ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+    return pill('ใบ SO ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
   }
-  if (v.contains('saved') || v.isEmpty) {
-    return pill('รอ SAP', const Color(0xFFB45309), Pal.warnBg);
+  if (v.contains('sending') || v.contains('saved') || v.isEmpty || v == 'wait') {
+    return pill('รอสร้างใบ SO', const Color(0xFFB45309), Pal.warnBg);
   }
   return pill(raw!, Pal.muted, const Color(0xFFF3F4F6));
 }
 
+Widget invoicePill(String? doc, String? status) {
+  final docNo = (doc ?? '').trim();
+  final state = (status ?? '').trim().toLowerCase();
+  if (state == 'error') return pill('Invoice ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+  if (docNo.isNotEmpty) return pill(docNo, const Color(0xFF15803D), Pal.okBg);
+  return const Text('-', style: TextStyle(color: Pal.muted));
+}
+
+Widget settlementPill(String? status) {
+  if ((status ?? '').trim().toLowerCase() == 'waiting_marketplace') {
+    return pill('รอรับเงิน', const Color(0xFFB45309), Pal.warnBg);
+  }
+  return const Text('-', style: TextStyle(color: Pal.muted));
+}
+
+Widget dashSoPill({double size = 12}) => pill('สร้าง SO', const Color(0xFF2563EB), Pal.infoBg, size: size);
+Widget dashDeliveryPill({double size = 12}) => pill('สร้าง Delivery', const Color(0xFF7C3AED), const Color(0xFFEDE9FE), size: size);
 Widget waitSoPill({double size = 12}) => pill('รอสร้าง SO', const Color(0xFFC2410C), const Color(0xFFFFEDD5), size: size);
 Widget waitTrPill({double size = 12}) => pill('รอสร้าง TR', const Color(0xFFC2410C), const Color(0xFFFFEDD5), size: size);
 Widget soCreatedPill({double size = 12}) => pill('สร้าง SO แล้ว', const Color(0xFF15803D), Pal.okBg, size: size);
@@ -114,15 +141,14 @@ Widget warehouseStatusPill(String raw) {
   return pill(v, Pal.muted, const Color(0xFFF3F4F6));
 }
 
-Widget productPill(ProductStatus s) {
-  switch (s) {
-    case ProductStatus.active:
-      return pill('พร้อมขาย', const Color(0xFF15803D), Pal.okBg);
-    case ProductStatus.inactive:
-      return pill('ปิดขาย', const Color(0xFFB91C1C), Pal.errBg);
-    case ProductStatus.draft:
-      return pill('ฉบับร่าง', Pal.muted, const Color(0xFFF3F4F6));
+Widget productPill(ProductStatus s, {int? stock}) {
+  if (s == ProductStatus.inactive) {
+    return pill('ปิดการขาย', const Color(0xFFB91C1C), Pal.errBg);
   }
+  if (stock != null && stock <= 0) {
+    return pill('สินค้าหมด', const Color(0xFFB45309), Pal.warnBg);
+  }
+  return pill('พร้อมขาย', const Color(0xFF15803D), Pal.okBg);
 }
 
 Widget productProblemCell(String text) {

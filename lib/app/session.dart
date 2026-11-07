@@ -32,7 +32,7 @@ class Session extends ChangeNotifier {
 
   bool get isUserRole => role.trim().toLowerCase() == 'user';
 
-  String get homePath => isUserRole ? '/' : '/connections';
+  String get homePath => '/';
 
   bool allowsPath(String loc) {
     if (!isUserRole) return true;

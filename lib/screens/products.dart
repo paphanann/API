@@ -17,24 +17,19 @@ class ProductsScreen extends StatefulWidget {
 }
 
 class _ProductsScreenState extends State<ProductsScreen> {
-  static const _pageSize = 10;
+  static const _pageSize = 50;
 
   String _ch = 'all';
   String _shop = 'all';
-  String _st = 'active';
-  String _issue = 'all';
+  String _st = 'all';
+  String _map = 'all';
   String _q = '';
   int _page = 1;
-  DateTime? _from;
-  DateTime? _to;
   final _search = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    final today = dateOnly(DateTime.now());
-    _to = today;
-    _from = today.subtract(const Duration(days: 30));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ProductStore.instance.load();
@@ -81,26 +76,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
     }
   }
 
-  Future<void> _pickRange() async {
-    final today = dateOnly(DateTime.now());
-    final picked = await showSimpleCalendar(
-      context: context,
-      from: _from ?? today.subtract(const Duration(days: 30)),
-      to: _to ?? today,
-    );
-    if (picked == null) return;
-    setState(() {
-      if (picked.cleared) {
-        _from = null;
-        _to = null;
-      } else {
-        _from = dateOnly(picked.range!.start);
-        _to = dateOnly(picked.range!.end);
-      }
-      _page = 1;
-    });
-  }
-
   DateTime? _lastSyncAt() {
     DateTime? last;
     for (final s in ShopStore.instance.realShops) {
@@ -119,10 +94,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return ProductStore.instance.products.where((p) {
       if (_ch != 'all' && p.channel.name != _ch) return false;
       if (_shop != 'all' && _shop != '${p.channel.name}|${p.shopId}') return false;
-      if (_st != 'all' && p.status.name != _st) return false;
-      if (_issue == 'sap' && p.problem.isEmpty) return false;
-      if (_issue == 'none' && p.problem.isNotEmpty) return false;
-      if (!inDayRange(p.updatedAt, _from, _to)) return false;
+      if (_st == 'active' && (p.status == ProductStatus.inactive || p.stockTotal <= 0)) return false;
+      if (_st == 'inactive' && p.status != ProductStatus.inactive) return false;
+      if (_st == 'oos' && (p.stockTotal > 0 || p.status == ProductStatus.inactive)) return false;
+      if (_map != 'all' && p.mappingStatus.name != _map) return false;
       if (q.isEmpty) return true;
       if (p.sku.toLowerCase().contains(q) || p.name.toLowerCase().contains(q) || p.displayId.toLowerCase().contains(q)) {
         return true;
@@ -149,10 +124,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
         final fromN = all.isEmpty ? 0 : start + 1;
         final toN = start + rows.length;
 
-        return SingleChildScrollView(
+        return Padding(
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text('สินค้า', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
               const SizedBox(height: 4),
@@ -161,11 +136,13 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 style: TextStyle(color: Pal.muted, fontSize: 14),
               ),
               const SizedBox(height: 20),
-              Panel(
-                pad: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+              Expanded(
+                child: Panel(
+                  expand: true,
+                  pad: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                     Align(
                       alignment: Alignment.centerRight,
                       child: Text(
@@ -212,7 +189,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           ],
                         ),
                         Drop<String>(
-                          label: 'สถานะ',
+                          label: 'สถานะสินค้า',
                           value: _st,
                           width: 150,
                           onChanged: (v) => setState(() {
@@ -222,25 +199,26 @@ class _ProductsScreenState extends State<ProductsScreen> {
                           items: const [
                             DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
                             DropdownMenuItem(value: 'active', child: Text('พร้อมขาย')),
-                            DropdownMenuItem(value: 'inactive', child: Text('ปิดขาย')),
-                            DropdownMenuItem(value: 'draft', child: Text('ฉบับร่าง')),
+                            DropdownMenuItem(value: 'inactive', child: Text('ปิดการขาย')),
+                            DropdownMenuItem(value: 'oos', child: Text('สินค้าหมด')),
                           ],
                         ),
                         Drop<String>(
-                          label: 'ปัญหา',
-                          value: _issue,
+                          label: 'สถานะ Mapping',
+                          value: _map,
                           width: 170,
                           onChanged: (v) => setState(() {
-                            _issue = v ?? 'all';
+                            _map = v ?? 'all';
                             _page = 1;
                           }),
                           items: const [
                             DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                            DropdownMenuItem(value: 'none', child: Text('ไม่มีปัญหา')),
-                            DropdownMenuItem(value: 'sap', child: Text('ไม่พบสินค้าใน SAP')),
+                            DropdownMenuItem(value: 'mapped', child: Text('จับคู่แล้ว')),
+                            DropdownMenuItem(value: 'partial', child: Text('จับคู่บางส่วน')),
+                            DropdownMenuItem(value: 'unmapped', child: Text('ยังไม่จับคู่')),
+                            DropdownMenuItem(value: 'noSku', child: Text('ไม่มี SKU')),
                           ],
                         ),
-                        DateRangeField(from: _from, to: _to, onTap: _pickRange),
                         SizedBox(
                           width: 240,
                           child: TextField(
@@ -293,28 +271,35 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       const LinearProgressIndicator(minHeight: 3),
                     ],
                     const SizedBox(height: 16),
-                    LayoutBuilder(
-                      builder: (context, box) {
-                        return _TableViewport(
-                          width: box.maxWidth,
-                          child: FillTable(
-                            minWidth: 1850,
-                            child: Column(
-                              children: [
-                                _header(),
-                                const Divider(height: 1),
-                                for (var i = 0; i < rows.length; i++) _ProductBlock(rows[i], start + i + 1),
-                              ],
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, box) {
+                          return _TableViewport(
+                            width: box.maxWidth,
+                            child: FillTable(
+                              minWidth: 1120,
+                              viewportWidth: box.maxWidth.isFinite ? box.maxWidth : null,
+                              header: Column(
+                                children: [
+                                  _header(),
+                                  const Divider(height: 1),
+                                ],
+                              ),
+                              child: Column(
+                                children: [
+                                  for (var i = 0; i < rows.length; i++) _ProductBlock(rows[i], start + i + 1),
+                                  if (rows.isEmpty && !busy)
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(vertical: 24),
+                                      child: Center(child: Text('ไม่พบสินค้า')),
+                                    ),
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-                    if (rows.isEmpty && !busy)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Center(child: Text('ไม่พบสินค้า')),
+                          );
+                        },
                       ),
+                    ),
                     const SizedBox(height: 16),
                     Row(
                       children: [
@@ -328,6 +313,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     ),
                   ],
                 ),
+              ),
               ),
             ],
           ),
@@ -344,11 +330,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
         seq: const Text('#', style: tableHead),
         product: const Text('สินค้า', style: tableHead),
         platform: const Text('แพลตฟอร์ม', style: tableHead),
-        shop: const Text('ชื่อร้าน', style: tableHead),
+        shop: const Text('ร้านค้า', style: tableHead),
         price: const Text('ราคาเริ่มต้น', style: tableHead),
-        stock: const Text('Stock รวม', style: tableHead),
-        status: const Text('สถานะ', style: tableHead),
-        sap: const Text('SAP ItemCode', style: tableHead),
+        stock: const Text('สต็อกรวม', style: tableHead),
+        status: const Text('สถานะสินค้า', style: tableHead),
         mapping: const Text('Mapping', style: tableHead),
         problem: const Text('ปัญหา', style: tableHead),
       ),
@@ -366,7 +351,6 @@ class _ProdCols extends StatelessWidget {
     required this.stock,
     required this.status,
     required this.problem,
-    required this.sap,
     required this.mapping,
   });
 
@@ -378,14 +362,13 @@ class _ProdCols extends StatelessWidget {
   final Widget stock;
   final Widget status;
   final Widget problem;
-  final Widget sap;
   final Widget mapping;
 
   @override
   Widget build(BuildContext context) {
-    Widget cell(double w, Widget child) {
-      return SizedBox(
-        width: w,
+    Widget flex(int n, Widget child) {
+      return Expanded(
+        flex: n,
         child: Align(alignment: Alignment.centerLeft, child: child),
       );
     }
@@ -393,29 +376,57 @@ class _ProdCols extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        SizedBox(width: 32, child: seq),
-        Expanded(child: product),
-        cell(140, platform),
-        cell(160, shop),
-        cell(120, price),
-        cell(100, stock),
-        cell(120, status),
-        cell(140, sap),
-        cell(150, mapping),
-        cell(200, problem),
+        SizedBox(width: 36, child: seq),
+        flex(7, product),
+        flex(2, Padding(padding: const EdgeInsets.only(left: 28), child: platform)),
+        flex(2, shop),
+        flex(2, price),
+        flex(1, stock),
+        flex(2, status),
+        flex(2, mapping),
+        flex(2, problem),
       ],
     );
   }
 }
 
-Widget _mapPill(bool mapped, {String? label}) {
-  final text = label ?? (mapped ? 'Mapped' : 'Not Mapped');
-  if (text == 'บางส่วน') {
-    return pill('บางส่วน', const Color(0xFFB45309), Pal.warnBg);
+Widget _parentMapPill(Product p) {
+  switch (p.mappingStatus) {
+    case MappingStatus.mapped:
+      return pill(p.mappingLabel, const Color(0xFF15803D), Pal.okBg);
+    case MappingStatus.partial:
+      return pill(p.mappingLabel, const Color(0xFFB45309), Pal.warnBg);
+    case MappingStatus.unmapped:
+      return pill(p.mappingLabel, const Color(0xFFB91C1C), Pal.errBg);
+    case MappingStatus.noSku:
+      return pill(p.mappingLabel, const Color(0xFFBE185D), const Color(0xFFFCE7F3));
   }
-  return mapped
-      ? pill('Mapped', const Color(0xFF15803D), Pal.okBg)
-      : pill('Not Mapped', const Color(0xFFB91C1C), Pal.errBg);
+}
+
+Widget _varMapPill(ProductVariant v) {
+  if (!v.hasSellerSku) {
+    return pill('ไม่มี SKU', const Color(0xFFBE185D), const Color(0xFFFCE7F3));
+  }
+  if (v.mapped) {
+    return pill('จับคู่แล้ว', const Color(0xFF15803D), Pal.okBg);
+  }
+  return pill('ยังไม่จับคู่', const Color(0xFFB91C1C), Pal.errBg);
+}
+
+Widget _problemCell(String text) {
+  if (text.isEmpty || text == '-') {
+    return const Text('-', style: TextStyle(color: Pal.muted, fontSize: 13));
+  }
+  return Text(
+    text,
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+    style: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      color: text.contains('ไม่มี SKU') ? const Color(0xFFDC2626) : Pal.text,
+    ),
+  );
 }
 
 class _ProductBlock extends StatefulWidget {
@@ -430,13 +441,6 @@ class _ProductBlock extends StatefulWidget {
 
 class _ProductBlockState extends State<_ProductBlock> {
   bool _open = false;
-
-  /// Shopee มักไม่ใส่ model_sku — อย่าเอา model_id มาโชว์ซ้ำในคอลัมน์ SKU
-  String _sellerSku(ProductVariant v) {
-    final sku = v.sku.trim();
-    if (sku.isEmpty || sku == '-' || sku == v.modelId) return '-';
-    return sku;
-  }
 
   String get _code {
     final sku = widget.p.sku.trim();
@@ -472,52 +476,35 @@ class _ProductBlockState extends State<_ProductBlock> {
                           width: double.infinity,
                           child: Text(
                             p.name,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                'รหัส ${_code}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 12, color: Pal.muted),
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            InkWell(
-                              onTap: _copyCode,
-                              borderRadius: BorderRadius.circular(4),
-                              child: const Padding(
-                                padding: EdgeInsets.all(2),
-                                child: Icon(Icons.content_copy_rounded, size: 14, color: Pal.faint),
-                              ),
-                            ),
-                          ],
+                        InkWell(
+                          onTap: _copyCode,
+                          child: Text(
+                            'รหัสสินค้า / Item SKU : $_code',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12, color: Pal.muted),
+                          ),
                         ),
                         if (p.hasVariants) ...[
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 4),
                           InkWell(
                             onTap: () => setState(() => _open = !_open),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Pal.primarySoft,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: const Color(0xFFD6E2F5)),
-                              ),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(_open ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 16, color: Pal.primary),
-                                  const SizedBox(width: 4),
+                                  const SizedBox(width: 2),
                                   Text(
-                                    '${p.variantCount} รายการย่อย',
+                                    '${p.variantCount} ตัวเลือกสินค้า',
                                     style: const TextStyle(color: Pal.primary, fontSize: 12, fontWeight: FontWeight.w600),
                                   ),
                                 ],
@@ -538,15 +525,14 @@ class _ProductBlockState extends State<_ProductBlock> {
                 overflow: TextOverflow.ellipsis,
               ),
               stock: Text('${p.stockTotal}'),
-              status: productPill(p.status),
-              sap: Text(p.parentSap.isEmpty ? '-' : p.parentSap, maxLines: 1, overflow: TextOverflow.ellipsis),
-              mapping: _mapPill(p.mapped, label: p.parentSap == 'บางส่วน' ? 'บางส่วน' : null),
-              problem: productProblemCell(p.problem),
+              status: productPill(p.status, stock: p.stockTotal),
+              mapping: _parentMapPill(p),
+              problem: _problemCell(p.problem),
             ),
           ),
         if (_open && p.hasVariants)
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+            padding: const EdgeInsets.fromLTRB(40, 0, 8, 12),
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
@@ -554,49 +540,114 @@ class _ProductBlockState extends State<_ProductBlock> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: Pal.line),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: DataTable(
-                headingRowColor: tableHeadBg,
-                headingTextStyle: tableHead,
-                columnSpacing: 24,
-                horizontalMargin: 16,
-                dataRowMinHeight: 48,
-                dataRowMaxHeight: 60,
-                columns: const [
-                  DataColumn(label: SizedBox(width: 28, child: Text('#', maxLines: 1, softWrap: false))),
-                  DataColumn(label: Text('SKU')),
-                  DataColumn(label: Text('Model ID')),
-                  DataColumn(label: Text('ตัวเลือก')),
-                  DataColumn(label: Text('ราคา')),
-                  DataColumn(label: Text('Stock')),
-                  DataColumn(label: Text('SAP ItemCode')),
-                  DataColumn(label: Text('Mapping')),
-                  DataColumn(label: Text('สถานะ')),
-                  DataColumn(label: Text('ปัญหา')),
-                ],
-                rows: [
-                  for (var i = 0; i < p.variants.length; i++)
-                    DataRow(
-                      cells: [
-                        DataCell(Text('${i + 1}', style: const TextStyle(color: Pal.muted))),
-                        DataCell(Text(_sellerSku(p.variants[i]), style: const TextStyle(fontWeight: FontWeight.w600))),
-                        DataCell(Text(p.variants[i].modelId.isEmpty ? '-' : p.variants[i].modelId)),
-                        DataCell(Text(p.variants[i].option.isEmpty ? '-' : p.variants[i].option, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        DataCell(Text(baht.format(p.variants[i].price))),
-                        DataCell(Text('${p.variants[i].stock}')),
-                        DataCell(Text(p.variants[i].sapItemCode.isEmpty ? '-' : p.variants[i].sapItemCode)),
-                        DataCell(_mapPill(p.variants[i].mapped)),
-                        DataCell(productPill(p.variants[i].status)),
-                        DataCell(productProblemCell(p.variants[i].problem)),
-                      ],
-                    ),
-                ],
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: _variantTable(p, maxWidth: constraints.maxWidth),
+                  );
+                },
               ),
             ),
           ),
         const Divider(height: 1),
       ],
     );
+  }
+
+  Widget _variantTable(Product p, {required double maxWidth}) {
+    var optionW = _colW(['ตัวเลือก', ...p.variants.map((v) => v.option)], min: 88, max: 220);
+    var skuW = _colW(['SKU', ...p.variants.map((v) => v.sellerSku)], min: 88);
+    var modelW = _colW(['Model ID', ...p.variants.map((v) => v.modelId)], min: 120);
+    var priceW = _colW(['ราคา', ...p.variants.map((v) => baht.format(v.price))], min: 96);
+    var stockW = _colW(['Stock', ...p.variants.map((v) => '${v.stock}')], min: 64);
+    var sapW = _colW(['ItemCode', ...p.variants.map((v) => v.sapItemCode)], min: 110);
+    var mapW = 118.0;
+    const gaps = _VarCols.gap * 7;
+    final natural = _VarCols.seqW + optionW + skuW + modelW + priceW + stockW + sapW + mapW + gaps + 24;
+    final target = maxWidth > natural ? maxWidth : natural;
+    final extra = target - natural;
+    if (extra > 0) {
+      optionW += extra * 0.34;
+      skuW += extra * 0.16;
+      modelW += extra * 0.16;
+      sapW += extra * 0.20;
+      mapW += extra * 0.14;
+    }
+    return SizedBox(
+      width: target,
+      child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          color: const Color(0xFFF1F5F9),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: _VarCols(
+            optionW: optionW,
+            skuW: skuW,
+            modelW: modelW,
+            priceW: priceW,
+            stockW: stockW,
+            sapW: sapW,
+            mapW: mapW,
+            seq: const Text('#', style: tableHead, maxLines: 1, softWrap: false),
+            option: const Text('ตัวเลือก', style: tableHead, maxLines: 1, softWrap: false),
+            sku: const Text('SKU', style: tableHead, maxLines: 1, softWrap: false),
+            modelId: const Text('Model ID', style: tableHead, maxLines: 1, softWrap: false),
+            price: const Text('ราคา', style: tableHead, maxLines: 1, softWrap: false),
+            stock: const Text('Stock', style: tableHead, maxLines: 1, softWrap: false),
+            sap: const Text('ItemCode', style: tableHead, maxLines: 1, softWrap: false),
+            mapping: const Text('Mapping', style: tableHead, maxLines: 1, softWrap: false),
+          ),
+        ),
+        for (var i = 0; i < p.variants.length; i++) ...[
+          if (i > 0) const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: _VarCols(
+              optionW: optionW,
+              skuW: skuW,
+              modelW: modelW,
+              priceW: priceW,
+              stockW: stockW,
+              sapW: sapW,
+              mapW: mapW,
+              seq: Text('${i + 1}', style: const TextStyle(color: Pal.muted)),
+              option: Text(
+                p.variants[i].option.isEmpty ? '-' : p.variants[i].option,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+              ),
+              sku: _codeText(p.variants[i].sellerSku),
+              modelId: _codeText(p.variants[i].modelId),
+              price: Text(baht.format(p.variants[i].price), maxLines: 1, softWrap: false),
+              stock: Text('${p.variants[i].stock}', maxLines: 1, softWrap: false),
+              sap: _codeText(p.variants[i].sapItemCode),
+              mapping: _varMapPill(p.variants[i]),
+            ),
+          ),
+        ],
+      ],
+      ),
+    );
+  }
+
+  double _colW(Iterable<String> values, {required double min, double max = 520}) {
+    var longest = 1;
+    for (final value in values) {
+      final n = value.trim().isEmpty ? 1 : value.trim().length;
+      if (n > longest) longest = n;
+    }
+    final width = 20 + longest * 8.6;
+    if (width < min) return min;
+    if (width > max) return max;
+    return width;
+  }
+
+  Widget _codeText(String value) {
+    final text = value.trim().isEmpty ? '-' : value.trim();
+    return Text(text, maxLines: 1, softWrap: false, style: const TextStyle(fontWeight: FontWeight.w600));
   }
 
   Widget _thumb(String url) {
@@ -616,6 +667,73 @@ class _ProductBlockState extends State<_ProductBlock> {
                 ),
               ),
       ),
+    );
+  }
+}
+
+class _VarCols extends StatelessWidget {
+  const _VarCols({
+    required this.optionW,
+    required this.skuW,
+    required this.modelW,
+    required this.priceW,
+    required this.stockW,
+    required this.sapW,
+    required this.mapW,
+    required this.seq,
+    required this.option,
+    required this.sku,
+    required this.modelId,
+    required this.price,
+    required this.stock,
+    required this.sap,
+    required this.mapping,
+  });
+
+  static const gap = 20.0;
+  static const seqW = 36.0;
+
+  final double optionW;
+  final double skuW;
+  final double modelW;
+  final double priceW;
+  final double stockW;
+  final double sapW;
+  final double mapW;
+  final Widget seq;
+  final Widget option;
+  final Widget sku;
+  final Widget modelId;
+  final Widget price;
+  final Widget stock;
+  final Widget sap;
+  final Widget mapping;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget cell(double w, Widget child, {Alignment align = Alignment.centerLeft}) {
+      return SizedBox(width: w, child: Align(alignment: align, child: child));
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        cell(seqW, seq),
+        const SizedBox(width: gap),
+        cell(optionW, option),
+        const SizedBox(width: gap),
+        cell(skuW, sku),
+        const SizedBox(width: gap),
+        cell(modelW, modelId),
+        const SizedBox(width: gap),
+        cell(priceW, price),
+        const SizedBox(width: gap),
+        cell(stockW, stock),
+        const SizedBox(width: gap),
+        cell(sapW, sap),
+        const SizedBox(width: gap),
+        cell(mapW, mapping),
+      ],
     );
   }
 }

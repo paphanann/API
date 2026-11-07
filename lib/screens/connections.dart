@@ -353,7 +353,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     ),
                     const SizedBox(height: 8),
                     FillTable(
-                      minWidth: 1180,
+                      minWidth: 1020,
                       child: DataTable(
                         showCheckboxColumn: false,
                         headingRowColor: tableHeadBg,
@@ -366,7 +366,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
                           DataColumn(label: Text('ชื่อร้าน')),
                           DataColumn(label: Text('Shop ID')),
                           DataColumn(label: Text('สถานะ')),
-                          DataColumn(label: Text('คลังสินค้า (SAP)')),
                           DataColumn(label: Text('เชื่อมต่อเมื่อ')),
                           DataColumn(label: Text('ดึงข้อมูลล่าสุด')),
                           DataColumn(label: Text('จัดการ')),
@@ -387,10 +386,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
                                 ),
                                 DataCell(Text(shown[i].shopId == '-' ? '-' : shown[i].shopId)),
                                 DataCell(_StatusDot(shown[i])),
-                                DataCell(Text(() {
-                                  final wh = store.withMeta(shown[i]).warehouse.trim();
-                                  return wh.isEmpty ? '-' : wh;
-                                }())),
                                 DataCell(Text(formatDt(shown[i].lastConnected, withSeconds: true))),
                                 DataCell(Text(formatDt(shown[i].lastSync, withSeconds: true))),
                                 DataCell(

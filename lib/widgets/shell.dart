@@ -6,6 +6,7 @@ import '../app/theme.dart';
 import 'ui.dart';
 
 const _adminMenus = {'/connections', '/sync-log', '/settings'};
+const _hiddenMenus = {'/inventory'};
 
 const _menus = [
   ('/', 'หน้าหลัก', Icons.grid_view_rounded),
@@ -90,7 +91,7 @@ class AppShell extends StatelessWidget {
                   child: Builder(
                     builder: (ctx) => ListenableBuilder(
                       listenable: session,
-                      builder: (_, _) => TopBar(
+                      builder: (_, _) =>                       TopBar(
                         title: title,
                         session: session,
                         onMenu: () => Scaffold.of(ctx).openDrawer(),
@@ -114,7 +115,7 @@ class AppShell extends StatelessWidget {
   }
 
   String _title(String path) {
-    if (path == '/') return 'หน้าหลัก';
+    if (path == '/') return '';
     if (path.startsWith('/orders')) return '';
     if (path == '/products') return '';
     if (path == '/inventory') return '';
@@ -174,7 +175,7 @@ class SideMenu extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                 for (final m in _menus)
-                  if (!session.isUserRole || !_adminMenus.contains(m.$1))
+                  if (!_hiddenMenus.contains(m.$1) && (!session.isUserRole || !_adminMenus.contains(m.$1)))
                     _tile(
                       icon: m.$3,
                       label: m.$2,

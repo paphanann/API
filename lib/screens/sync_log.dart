@@ -45,6 +45,21 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
     }).toList();
   }
 
+  void _applyPeriod(DatePeriod period) {
+    if (period == DatePeriod.custom) {
+      _pickRange().whenComplete(() {
+        if (mounted) setState(() {});
+      });
+      return;
+    }
+    final range = rangeOfPeriod(period);
+    setState(() {
+      _from = range.$1;
+      _to = range.$2;
+      _page = 1;
+    });
+  }
+
   Future<void> _pickRange() async {
     final today = dateOnly(DateTime.now());
     final picked = await showSimpleCalendar(
@@ -123,6 +138,7 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                   crossAxisAlignment: WrapCrossAlignment.end,
                   children: [
                     DateRangeField(from: _from, to: _to, onTap: _pickRange),
+                    PeriodField(value: periodOfRange(_from, _to), onChanged: _applyPeriod),
                     Drop<String>(
                       label: 'แพลตฟอร์ม',
                       value: _ch,

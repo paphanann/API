@@ -42,7 +42,6 @@ String _startLocation() {
   }
 
   final path = _appPath(route.path);
-  if (path == '/') return '/login';
   return (fromHash ?? route).hasQuery ? '$path?${(fromHash ?? route).query}' : path;
 }
 
@@ -80,6 +79,7 @@ GoRouter buildRouter(Session session) {
         return '/connections$q';
       }
       if (session.loggedIn && !session.allowsPath(loc)) return '/';
+      if (loc == '/inventory' || loc.startsWith('/inventory/')) return '/';
       return null;
     },
     routes: [

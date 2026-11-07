@@ -9,26 +9,32 @@ class DashStore extends PassStore {
   DashData data = DashData.empty();
   bool loading = false;
   String? error;
+  DateTime? _from;
+  DateTime? _to;
+  String? _platform;
+  String? _shopId;
 
-  Future<void> load() async {
+  Future<void> load({
+    DateTime? from,
+    DateTime? to,
+    String? platform,
+    String? shopId,
+    bool keepFilter = false,
+  }) async {
+    if (!keepFilter) {
+      _from = from;
+      _to = to;
+      _platform = platform;
+      _shopId = shopId;
+    }
     loading = true;
     error = null;
     notifyListeners();
     try {
-      var dash = await Api.getDashboard();
-      if (!dash.hasCharts) {
-        try {
-          dash = dash.merge(await Api.dashboardFromLive());
-        } catch (_) {}
-      }
-      data = dash;
+      data = await Api.getDashboard(from: _from, to: _to, platform: _platform, shopId: _shopId);
     } catch (e) {
-      try {
-        data = await Api.dashboardFromLive();
-      } catch (_) {
-        error = e is ApiException ? e.message : e.toString();
-        data = DashData.empty();
-      }
+      error = e is ApiException ? e.message : e.toString();
+      data = DashData.empty();
     }
     loading = false;
     notifyListeners();

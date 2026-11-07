@@ -94,8 +94,22 @@ class Api {
     return [for (final row in rows) if (row is Map) SyncRow.fromApi(Map<String, dynamic>.from(row))];
   }
 
-  static Future<DashData> getDashboard() async {
-    final res = await _send(http.get(_u('/api/dashboard'), headers: _headers()));
+  static Future<DashData> getDashboard({
+    DateTime? from,
+    DateTime? to,
+    String? platform,
+    String? shopId,
+  }) async {
+    final query = <String, String>{};
+    if (platform != null && platform.isNotEmpty) query['platform'] = platform;
+    if (shopId != null && shopId.isNotEmpty && shopId != '-') query['shopId'] = shopId;
+    if (from != null && to != null) {
+      String day(DateTime d) =>
+          '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      query['from'] = day(from);
+      query['to'] = day(to);
+    }
+    final res = await _send(http.get(_u('/api/dashboard', query.isEmpty ? null : query), headers: _headers()));
     if (res.statusCode == 404) return DashData.empty();
     final data = await _json(res);
     if (data is Map) {
@@ -380,10 +394,21 @@ class Api {
     }
   }
 
-  static Future<List<Order>> getOrders({String? platform, String? shopId}) async {
+  static Future<List<Order>> getOrders({
+    String? platform,
+    String? shopId,
+    DateTime? from,
+    DateTime? to,
+  }) async {
     final query = <String, String>{};
     if (platform != null && platform.isNotEmpty) query['platform'] = platform;
     if (shopId != null && shopId.isNotEmpty && shopId != '-') query['shopId'] = shopId;
+    if (from != null && to != null) {
+      String day(DateTime d) =>
+          '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      query['from'] = day(from);
+      query['to'] = day(to);
+    }
     final res = await _send(http.get(_u('/api/orders', query.isEmpty ? null : query), headers: _headers()));
     final rows = _list(await _json(res));
     final fallback = ChannelX.fromApi(platform);
@@ -397,6 +422,57 @@ class Api {
       if (i > 0 && i % 80 == 0) await Future<void>.delayed(Duration.zero);
     }
     return out;
+  }
+
+  static Future<({List<Order> items, int total})> getOrdersPage({
+    String? platform,
+    String? shopId,
+    String? status,
+    String? sap,
+    String? q,
+    String? tr,
+    bool wide = false,
+    bool links = false,
+    DateTime? from,
+    DateTime? to,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final query = <String, String>{
+      'page': '$page',
+      'pageSize': '$pageSize',
+    };
+    if (platform != null && platform.isNotEmpty) query['platform'] = platform;
+    if (shopId != null && shopId.isNotEmpty && shopId != '-') query['shopId'] = shopId;
+    if (status != null && status.isNotEmpty && status != 'all') query['status'] = status;
+    if (sap != null && sap.isNotEmpty && sap != 'all') query['sap'] = sap;
+    final text = q?.trim() ?? '';
+    if (text.isNotEmpty) query['q'] = text;
+    if (tr != null && tr.isNotEmpty && tr != 'all') query['tr'] = tr;
+    if (wide) query['wide'] = '1';
+    if (links) query['links'] = '1';
+    if (from != null && to != null) {
+      String day(DateTime d) =>
+          '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      query['from'] = day(from);
+      query['to'] = day(to);
+    }
+    final res = await _send(http.get(_u('/api/orders', query), headers: _headers()));
+    final data = await _json(res);
+    final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+    final raw = map['items'] ?? map['Items'] ?? map['rows'] ?? map['Rows'];
+    final rows = raw is List ? raw : const [];
+    final totalRaw = map['total'] ?? map['Total'] ?? rows.length;
+    final total = totalRaw is num ? totalRaw.toInt() : int.tryParse('$totalRaw') ?? rows.length;
+    final fallback = ChannelX.fromApi(platform);
+    final items = <Order>[];
+    for (final row in rows) {
+      if (row is Map) {
+        final item = row is Map<String, dynamic> ? row : Map<String, dynamic>.from(row);
+        items.add(Order.fromApi(item, fallbackChannel: fallback, listOnly: true));
+      }
+    }
+    return (items: items, total: total);
   }
 
   static Future<void> postSalesOrder(String orderId) async {

@@ -36,7 +36,7 @@ class _PassAppState extends State<PassApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'PASS',
+      title: 'Pass Marketplace',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
       scrollBehavior: PassScrollBehavior(),

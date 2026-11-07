@@ -12,6 +12,17 @@ class OrderStore extends PassStore {
   String? error;
   Future<void>? _inflight;
 
+  void remember(List<Order> rows) {
+    if (rows.isEmpty) return;
+    final map = {for (final order in orders) order.id: order};
+    for (final order in rows) {
+      final prev = map[order.id];
+      map[order.id] = prev != null && prev.lines.isNotEmpty && order.lines.isEmpty ? prev : order;
+    }
+    orders = map.values.toList();
+    notifyListeners();
+  }
+
   Order? byId(String id) {
     for (final o in orders) {
       if (o.id == id) return o;
@@ -42,9 +53,15 @@ class OrderStore extends PassStore {
     }
   }
 
-  Future<void> load({String? platform, String? shopId, bool silent = false}) async {
+  Future<void> load({
+    String? platform,
+    String? shopId,
+    bool silent = false,
+    DateTime? from,
+    DateTime? to,
+  }) async {
     if (_inflight != null) return _inflight!;
-    _inflight = _load(platform: platform, shopId: shopId, silent: silent);
+    _inflight = _load(platform: platform, shopId: shopId, silent: silent, from: from, to: to);
     try {
       await _inflight;
     } finally {
@@ -52,7 +69,13 @@ class OrderStore extends PassStore {
     }
   }
 
-  Future<void> _load({String? platform, String? shopId, bool silent = false}) async {
+  Future<void> _load({
+    String? platform,
+    String? shopId,
+    bool silent = false,
+    DateTime? from,
+    DateTime? to,
+  }) async {
     final showBusy = !silent || orders.isEmpty;
     if (showBusy) {
       loading = true;
@@ -60,7 +83,7 @@ class OrderStore extends PassStore {
       notifyListeners();
     }
     try {
-      final fresh = await Api.getOrders(platform: platform, shopId: shopId);
+      final fresh = await Api.getOrders(platform: platform, shopId: shopId, from: from, to: to);
       final detailed = {for (final order in orders) if (order.lines.isNotEmpty) order.id: order};
       orders = [
         for (final order in fresh)

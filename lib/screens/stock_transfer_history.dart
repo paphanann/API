@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -64,8 +66,15 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
   final _selected = <String>{};
   int _page = 1;
   int _histPage = 1;
-  static const _pageSize = 5;
+  static const _pageSize = 50;
   bool _sending = false;
+  List<Order> _soItems = const [];
+  int _soTotal = 0;
+  bool _soLoading = false;
+  String? _soError;
+  int _soReq = 0;
+  Timer? _searchDebounce;
+  final _picked = <String, Order>{};
 
   @override
   void initState() {
@@ -76,14 +85,8 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       TransferStore.instance.load();
-      final orders = OrderStore.instance;
-      if (orders.orders.isEmpty) {
-        orders.load();
-      } else {
-        orders.load(silent: true);
-      }
+      _reloadSo();
       if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
-      if (SyncLogStore.instance.logs.isEmpty) SyncLogStore.instance.load();
       try {
         final opts = await Api.getErpOptions();
         if (!mounted) return;
@@ -96,30 +99,17 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.dispose();
     super.dispose();
-  }
-
-  DateTime? _lastSyncAt() {
-    DateTime? last;
-    for (final s in ShopStore.instance.realShops) {
-      final t = s.lastSync;
-      if (t != null && (last == null || t.isAfter(last))) last = t;
-    }
-    for (final l in SyncLogStore.instance.logs) {
-      if (l.status != SyncStatus.success && l.status != SyncStatus.partial) continue;
-      if (last == null || l.time.isAfter(last)) last = l.time;
-    }
-    return last;
   }
 
   Future<void> _syncNow() async {
     try {
       await MarketplaceSyncStore.instance.syncNow(force: false);
       await Future.wait([
-        OrderStore.instance.load(),
+        _reloadSo(),
         ShopStore.instance.load(),
-        SyncLogStore.instance.load(),
         TransferStore.instance.load(),
       ]);
       if (!mounted) return;
@@ -129,6 +119,65 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
       );
+    }
+  }
+
+  void _applyPeriod(DatePeriod period) {
+    if (period == DatePeriod.custom) {
+      _pickRange().whenComplete(() {
+        if (mounted) setState(() {});
+      });
+      return;
+    }
+    final range = rangeOfPeriod(period);
+    setState(() {
+      _fromDate = range.$1;
+      _toDate = range.$2;
+      _page = 1;
+      _histPage = 1;
+    });
+    _reloadSo();
+  }
+
+  Future<void> _reloadSo() async {
+    final req = ++_soReq;
+    final q = _search.text.trim();
+    final platform = _platform == 'all' ? null : Channel.values.byName(_platform).apiPlatform;
+    const kinds = {'ready', 'sent', 'done', 'fail'};
+    if (mounted) {
+      setState(() {
+        _soLoading = true;
+        _soError = null;
+      });
+    }
+    try {
+      final page = await Api.getOrdersPage(
+        platform: platform,
+        q: q,
+        tr: kinds.contains(_st) ? _st : null,
+        wide: q.isNotEmpty,
+        links: true,
+        from: q.isNotEmpty ? null : _fromDate,
+        to: q.isNotEmpty ? null : _toDate,
+        page: _page,
+        pageSize: _pageSize,
+      );
+      if (!mounted || req != _soReq) return;
+      setState(() {
+        _soItems = page.items;
+        _soTotal = page.total;
+        _soLoading = false;
+        for (final o in page.items) {
+          if (_picked.containsKey(o.id)) _picked[o.id] = o;
+        }
+      });
+      OrderStore.instance.remember(page.items);
+    } catch (e) {
+      if (!mounted || req != _soReq) return;
+      setState(() {
+        _soLoading = false;
+        _soError = e is ApiException ? e.message : e.toString();
+      });
     }
   }
 
@@ -151,6 +200,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
       _page = 1;
       _histPage = 1;
     });
+    _reloadSo();
   }
 
   void _clearFilters() {
@@ -164,6 +214,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
       _page = 1;
       _histPage = 1;
     });
+    _reloadSo();
   }
 
   ButtonStyle get _boxBtn => OutlinedButton.styleFrom(
@@ -236,30 +287,6 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     }
   }
 
-  bool _orderMatches(Order o, String q) {
-    if (q.isEmpty) return true;
-    final shop = ShopStore.instance.nameFor(channel: o.channel, shopId: o.shopId, shopName: o.shopName).toLowerCase();
-    final sap = (o.sapDocNum ?? '').toLowerCase();
-    return o.id.toLowerCase().contains(q) ||
-        sap.contains(q) ||
-        shop.contains(q) ||
-        (o.customer != '-' && o.customer.toLowerCase().contains(q));
-  }
-
-  List<Order> get _soRows {
-    final q = _search.text.trim().toLowerCase();
-    final list = [
-      for (final o in OrderStore.instance.orders)
-        if ((_platform == 'all' || o.channel.name == _platform) &&
-            (_st == 'all' || _soKind(o) == _st || (_st == 'ready' && _soKind(o) == 'ready')) &&
-            (q.isNotEmpty || inDayRange(o.createdAt, _fromDate, _toDate)) &&
-            _orderMatches(o, q))
-          o,
-    ];
-    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return list;
-  }
-
   List<StockTransfer> get _trRows {
     final q = _search.text.trim().toLowerCase();
     final list = [
@@ -289,10 +316,6 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
 
   static const _fromCode = 'MDL';
   static const _toCode = 'ONLINE';
-
-  String _fromWhs(Order _) => warehouseLabel(_fromCode);
-
-  String _toWhs(Order _) => warehouseLabel(_toCode);
 
   List<StockTransferLine> _mergeLines(List<Order> orders) {
     final map = <String, StockTransferLine>{};
@@ -378,10 +401,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
 
   Future<void> _sendSelected() async {
     if (_sending) return;
-    final picked = [
-      for (final o in OrderStore.instance.orders)
-        if (_selected.contains(o.id)) o,
-    ];
+    final picked = [for (final id in _selected) if (_picked[id] != null) _picked[id]!];
     final ready = [for (final o in picked) if (_canSend(o)) o];
     if (ready.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -394,17 +414,19 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
 
     setState(() => _sending = true);
     try {
+      final loaded = <Order>[];
       await _runBusy('กำลังดึงรายการสินค้าจากออเดอร์...', () async {
         for (final o in ready) {
-          if (o.lines.isEmpty) await OrderStore.instance.loadOne(o.id);
+          if (o.lines.isNotEmpty) {
+            loaded.add(o);
+          } else {
+            loaded.add(await OrderStore.instance.loadOne(o.id) ?? o);
+          }
         }
       });
       if (!mounted) return;
 
-      final selected = [
-        for (final o in OrderStore.instance.orders)
-          if (_selected.contains(o.id) && _canSend(o)) o,
-      ];
+      final selected = [for (final o in loaded) if (_canSend(o)) o];
       final drafts = _draftsFor(selected);
       if (drafts.isEmpty) return;
       final skipped = _selected.length - selected.length;
@@ -419,7 +441,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
               fromWarehouseId: d.fromCode.isEmpty ? '-' : d.fromCode,
               toWarehouseId: d.toCode.isEmpty ? '-' : d.toCode,
               items: d.items,
-              note: 'Transfer Request จาก Sales Order (${d.channel.shortLabel}): ${d.soRef}',
+              note: 'Transfer Request จาก Sales Order (${d.channel.shortLabel}) ${d.soRef}',
               documentNo: d.docNo,
               referenceNo: d.soRef,
               requestedBy: Session.instance.name,
@@ -439,8 +461,12 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
         return out;
       });
       if (!mounted || results == null) return;
-      setState(() => _selected.clear());
+      setState(() {
+        _selected.clear();
+        _picked.clear();
+      });
       await _showSendResult(results);
+      if (mounted) await _reloadSo();
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -608,93 +634,23 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     );
   }
 
-  String _cust(Order o) {
-    final shop = ShopStore.instance.nameFor(channel: o.channel, shopId: o.shopId, shopName: o.shopName);
-    if (shop.isNotEmpty && shop != '-') return shop;
-    if (o.customer.isNotEmpty && o.customer != '-') return o.customer;
-    return '-';
-  }
-
   Widget _plat(Channel ch) {
     return Text(ch.shortLabel, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600));
-  }
-
-  Widget _detailBtn(StockTransfer t) {
-    return TextButton(
-      onPressed: () => _openTransfer(t),
-      style: TextButton.styleFrom(
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-      ),
-      child: const Text('ดูรายละเอียด'),
-    );
   }
 
   Future<void> _openTransfer(StockTransfer t) {
     return showDialog<void>(
       context: context,
       useRootNavigator: true,
-      builder: (ctx) => AlertDialog(
-        titlePadding: const EdgeInsets.fromLTRB(24, 20, 12, 0),
-        contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-        actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-        title: Row(
-          children: [
-            const Expanded(child: Text('รายละเอียด Transfer Request', style: TextStyle(fontWeight: FontWeight.w800))),
-            sapStatusPill(t.status),
-            IconButton(
-              onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(),
-              icon: const Icon(Icons.close_rounded),
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: 560,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _kv('เลขที่เอกสาร', t.id),
-                _kv('วันที่โอน', formatDt(t.displayAt)),
-                _kv('แพลตฟอร์ม', t.platform.trim().isEmpty ? '-' : (ChannelX.fromApi(t.platform)?.label ?? t.platform)),
-                _kv('SAP DocNumber', t.sapDocNum.isEmpty ? '-' : t.sapDocNum),
-                _kv('อ้างอิง SO', t.referenceNo.trim().isEmpty ? '-' : t.referenceNo),
-                _kv('ผู้ขอโอน', t.requestedBy.trim().isEmpty ? '-' : t.requestedBy),
-                _kv('คลังต้นทาง', t.fromLabel),
-                _kv('คลังปลายทาง', t.toLabel),
-                _kv('จำนวนรายการ', '${t.items.isEmpty ? t.qtyTotal : t.items.length}'),
-                _kv('จำนวนโอนรวม', '${t.qtyTotal}'),
-                if (t.note.trim().isNotEmpty) _kv('หมายเหตุ', t.note),
-                if (t.items.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  const Text('รายการสินค้า', style: TextStyle(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 8),
-                  for (final line in t.items)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              line.name.isEmpty ? line.sku : '${line.sku}  ${line.name}',
-                              style: const TextStyle(fontSize: 13),
-                            ),
-                          ),
-                          Text('x ${line.qty}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-                        ],
-                      ),
-                    ),
-                ],
-              ],
-            ),
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: SelectionArea(
+          child: SizedBox(
+            width: 720,
+            child: _TrDetailDialog(t: t, trNo: _trNo(t), soCount: _soCount(t)),
           ),
         ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx, rootNavigator: true).pop(),
-            child: const Text('ปิด'),
-          ),
-        ],
       ),
     );
   }
@@ -703,9 +659,52 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     final ch = ChannelX.fromApi(t.platform);
     if (ch == null) {
       final label = t.platform.trim();
-      return Text(label.isEmpty ? '-' : label, style: const TextStyle(fontWeight: FontWeight.w600));
+      return Text(label.isEmpty ? '—' : label, style: const TextStyle(fontWeight: FontWeight.w600));
     }
     return Text(ch.shortLabel, style: const TextStyle(fontWeight: FontWeight.w600));
+  }
+
+  bool _trFailed(StockTransfer t) {
+    final v = t.status.trim().toLowerCase();
+    return v.contains('fail') || v.contains('error') || v.contains('ล้มเหลว');
+  }
+
+  String _trNo(StockTransfer t) {
+    if (_trFailed(t)) return '-';
+    for (final raw in [t.sapDocNum, t.id]) {
+      final v = raw.trim();
+      if (v.isEmpty || v == '-') continue;
+      if (v.toUpperCase().startsWith('TRF-')) continue;
+      return v;
+    }
+    return '-';
+  }
+
+  int _soCount(StockTransfer t) => _transferSoKeys(t).length;
+
+  Widget _soCountCell(StockTransfer t) {
+    final n = _soCount(t);
+    if (n <= 0) return const Text('—', style: TextStyle(color: Pal.muted));
+    return Text('$n รายการ', style: const TextStyle(fontWeight: FontWeight.w700));
+  }
+
+  Widget _qtyCell(StockTransfer t) {
+    final qty = t.qtyTotal > 0 ? t.qtyTotal : t.items.length;
+    return Text('${nFmt.format(qty)} ชิ้น', style: const TextStyle(fontWeight: FontWeight.w700));
+  }
+
+  Widget _trHistStatus(String raw) {
+    final v = raw.trim().toLowerCase();
+    if (v.contains('success') || v.contains('สำเร็จ') || v.contains('done') || v.contains('complete')) {
+      return pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg);
+    }
+    if (v.contains('fail') || v.contains('error') || v.contains('ล้มเหลว')) {
+      return pill('ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+    }
+    if (v.contains('pending') || v.contains('wait') || v.contains('รอ')) {
+      return pill('รอดำเนินการ', const Color(0xFFC2410C), const Color(0xFFFFEDD5));
+    }
+    return sapStatusPill(raw);
   }
 
   @override
@@ -719,61 +718,72 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
         SyncLogStore.instance,
       ]),
       builder: (context, _) {
-        final soAll = _soRows;
+        final soPage = _soItems;
         final trAll = _trRows;
-        final readyN = soAll.where((o) => _soKind(o) == 'ready').length;
-        final okN = TransferStore.instance.rows.where((t) => t.status.toLowerCase().contains('success')).length;
-        final pendingN = TransferStore.instance.rows.where((t) => t.status.toLowerCase().contains('pending')).length;
-        final failN = TransferStore.instance.rows.where((t) => t.status.toLowerCase().contains('fail') || t.status.toLowerCase().contains('error')).length;
-        final pages = (soAll.length / _pageSize).ceil().clamp(1, 9999);
-        if (_page > pages) _page = pages;
+        final pages = (_soTotal / _pageSize).ceil().clamp(1, 9999);
         final start = (_page - 1) * _pageSize;
-        final soPage = soAll.skip(start).take(_pageSize).toList();
         final histPages = (trAll.length / _pageSize).ceil().clamp(1, 9999);
         if (_histPage > histPages) _histPage = histPages;
         final histStart = (_histPage - 1) * _pageSize;
         final recent = trAll.skip(histStart).take(_pageSize).toList();
-        final allIds = [for (final o in soAll) o.id];
+        final allIds = [for (final o in soPage) o.id];
         final selectedN = allIds.where(_selected.contains).length;
         final bool? allSelected =
             allIds.isEmpty ? false : selectedN == 0 ? false : selectedN == allIds.length ? true : null;
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Transfer Request จาก Sales Order', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
-                        SizedBox(height: 4),
-                        Text(
-                          'สร้างคำขอโอนสินค้าสำหรับออเดอร์ขาย และติดตามสถานะการส่งเข้า SAP',
-                          style: TextStyle(color: Pal.muted, fontSize: 14),
+              const Text('Transfer Request จาก Sales Order', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 2),
+              const Text(
+                'สร้างคำขอโอนสินค้าสำหรับออเดอร์ขาย และติดตามสถานะการส่งเข้า SAP',
+                style: TextStyle(color: Pal.muted, fontSize: 13),
+              ),
+              const SizedBox(height: 10),
+              _tabs(),
+              const SizedBox(height: 10),
+              Expanded(
+                child: Panel(
+                  expand: true,
+                  dense: true,
+                  pad: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _filters(),
+                      if (_tab == 0) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(child: _routeBar()),
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
+                              onPressed: _selected.isEmpty || _sending ? null : _sendSelected,
+                              icon: const Icon(Icons.send_rounded, size: 16),
+                              label: Text(_sending ? 'กำลังส่ง...' : 'สร้าง TR จากรายการที่เลือก (${_selected.length})'),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Text('เลือกแล้ว ${_selected.length} รายการ', style: const TextStyle(color: Pal.muted, fontSize: 13)),
+                          ],
                         ),
                       ],
-                    ),
+                      const SizedBox(height: 8),
+                      Expanded(
+                        child: _tab == 0
+                            ? _soPanel(_soTotal, soPage, start, pages, allSelected, allIds)
+                            : _historyPanel(recent, trAll.length, histStart, histPages),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-              const SizedBox(height: 16),
-              _tabs(),
-              const SizedBox(height: 16),
-              _filters(),
-              const SizedBox(height: 16),
-              _stats(readyN, okN, pendingN, failN),
-              const SizedBox(height: 16),
-              if (_tab == 0) ...[
-                _soPanel(soAll, soPage, start, pages, allSelected, allIds),
-                const SizedBox(height: 16),
-                _bottom(recent, trAll.length, histStart, histPages),
-              ] else
-                _historyPanel(trAll),
             ],
           ),
         );
@@ -788,7 +798,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
         onTap: () => setState(() => _tab = i),
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
             color: on ? Colors.white : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
@@ -830,273 +840,267 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
 
   Widget _filters() {
     final syncing = MarketplaceSyncStore.instance.syncing;
-    return Panel(
-      pad: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      child: Stack(
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.end,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 210),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 10,
-              crossAxisAlignment: WrapCrossAlignment.end,
-              children: [
-                DateRangeField(from: _fromDate, to: _toDate, onTap: _pickRange, width: 220),
-                Drop<String>(
-                  label: 'Platform',
-                  value: _platform,
-                  width: 132,
-                  onChanged: (v) => setState(() {
-                    _platform = v ?? 'all';
-                    _page = 1;
-                    _histPage = 1;
-                  }),
-                  items: [
-                    const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                    ...Channel.values.map((c) => DropdownMenuItem(value: c.name, child: Text(c.label))),
+          DateRangeField(from: _fromDate, to: _toDate, onTap: _pickRange, width: 280),
+          PeriodField(value: periodOfRange(_fromDate, _toDate), onChanged: _applyPeriod),
+          Drop<String>(
+            label: 'Platform',
+            value: _platform,
+            width: 132,
+            onChanged: (v) {
+              setState(() {
+                _platform = v ?? 'all';
+                _page = 1;
+                _histPage = 1;
+              });
+              _reloadSo();
+            },
+            items: [
+              const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
+              ...Channel.values.map((c) => DropdownMenuItem(value: c.name, child: Text(c.label))),
+            ],
+          ),
+          Drop<String>(
+            label: 'สถานะ',
+            value: _st,
+            width: 140,
+            onChanged: (v) {
+              setState(() {
+                _st = v ?? 'all';
+                _page = 1;
+                _histPage = 1;
+              });
+              _reloadSo();
+            },
+            items: _tab == 0
+                ? const [
+                    DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
+                    DropdownMenuItem(value: 'ready', child: Text('พร้อมสร้าง')),
+                    DropdownMenuItem(value: 'sent', child: Text('ส่ง SAP')),
+                    DropdownMenuItem(value: 'done', child: Text('สำเร็จ')),
+                    DropdownMenuItem(value: 'fail', child: Text('ผิดพลาด')),
+                  ]
+                : const [
+                    DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
+                    DropdownMenuItem(value: 'success', child: Text('สำเร็จ')),
+                    DropdownMenuItem(value: 'pending', child: Text('รอดำเนินการ')),
+                    DropdownMenuItem(value: 'failed', child: Text('ล้มเหลว')),
                   ],
-                ),
-                Drop<String>(
-                  label: 'สถานะ',
-                  value: _st,
-                  width: 140,
-                  onChanged: (v) => setState(() {
-                    _st = v ?? 'all';
+          ),
+          SizedBox(
+            width: 240,
+            child: TextField(
+              controller: _search,
+              onChanged: (_) {
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+                  if (!mounted) return;
+                  setState(() {
                     _page = 1;
                     _histPage = 1;
-                  }),
-                  items: _tab == 0
-                      ? const [
-                          DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                          DropdownMenuItem(value: 'ready', child: Text('พร้อมสร้าง')),
-                          DropdownMenuItem(value: 'sent', child: Text('ส่ง SAP')),
-                          DropdownMenuItem(value: 'done', child: Text('สำเร็จ')),
-                          DropdownMenuItem(value: 'fail', child: Text('ผิดพลาด')),
-                        ]
-                      : const [
-                          DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                          DropdownMenuItem(value: 'success', child: Text('Success')),
-                          DropdownMenuItem(value: 'pending', child: Text('Pending SAP')),
-                          DropdownMenuItem(value: 'failed', child: Text('Failed')),
-                        ],
-                ),
-                SizedBox(
-                  width: 260,
-                  child: TextField(
-                    controller: _search,
-                    onSubmitted: (_) => setState(() {
-                      _page = 1;
-                      _histPage = 1;
-                    }),
-                    style: const TextStyle(fontSize: 13),
-                    decoration: const InputDecoration(
-                      hintText: 'ค้นหาเลขที่ SO / ลูกค้า / Reference No.',
-                      hintStyle: TextStyle(fontSize: 12),
-                      prefixIcon: Icon(Icons.search, size: 16),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    ),
-                  ),
-                ),
-                SizedBox(
-                  height: _btnH,
-                  child: ElevatedButton.icon(
-                    onPressed: () => setState(() {
-                      _page = 1;
-                      _histPage = 1;
-                    }),
-                    style: _searchBtn,
-                    icon: const Icon(Icons.search, size: 16),
-                    label: const Text('ค้นหา', style: TextStyle(fontSize: 13)),
-                  ),
-                ),
-                SizedBox(
-                  height: _btnH,
-                  child: OutlinedButton(
-                    onPressed: _clearFilters,
-                    style: _boxBtn,
-                    child: const Text('ล้างตัวกรอง', style: TextStyle(fontSize: 13)),
-                  ),
-                ),
-                LastSyncButton(syncing: syncing, onSync: syncing ? null : _syncNow),
-              ],
+                  });
+                  _reloadSo();
+                });
+              },
+              onSubmitted: (_) {
+                _searchDebounce?.cancel();
+                setState(() {
+                  _page = 1;
+                  _histPage = 1;
+                });
+                _reloadSo();
+              },
+              style: const TextStyle(fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: 'ค้นหาเลขที่ SO / ลูกค้า / Reference No.',
+                hintStyle: TextStyle(fontSize: 12),
+                prefixIcon: Icon(Icons.search, size: 16),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              ),
             ),
           ),
-          Positioned(
-            top: 0,
-            right: 0,
-            child: LastSyncLabel(lastSync: _lastSyncAt()),
+          SizedBox(
+            height: _btnH,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                _searchDebounce?.cancel();
+                setState(() {
+                  _page = 1;
+                  _histPage = 1;
+                });
+                _reloadSo();
+              },
+              style: _searchBtn,
+              icon: const Icon(Icons.search, size: 16),
+              label: const Text('ค้นหา', style: TextStyle(fontSize: 13)),
+            ),
           ),
+          SizedBox(
+            height: _btnH,
+            child: OutlinedButton(
+              onPressed: _clearFilters,
+              style: _boxBtn,
+              child: const Text('ล้างตัวกรอง', style: TextStyle(fontSize: 13)),
+            ),
+          ),
+          LastSyncButton(syncing: syncing, onSync: syncing ? null : _syncNow),
         ],
-      ),
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(left: 12, bottom: 10),
+          child: TopBarLastSync(),
+        ),
+      ],
     );
   }
 
-  Widget _stats(int ready, int ok, int pending, int fail) {
-    final cards = [
-      StatCard(
-        title: 'SO รอโอน',
-        value: '$ready',
-        icon: Icons.inventory_2_outlined,
-        color: Pal.primary,
-        hint: const Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
-      ),
-      StatCard(
-        title: 'TR ส่งเข้า SAP สำเร็จ',
-        value: '$ok',
-        icon: Icons.check_circle_outline_rounded,
-        color: Pal.ok,
-        hint: const Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
-      ),
-      StatCard(
-        title: 'Pending SAP',
-        value: '$pending',
-        icon: Icons.schedule_rounded,
-        color: Pal.warn,
-        hint: const Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
-      ),
-      StatCard(
-        title: 'Failed',
-        value: '$fail',
-        icon: Icons.cancel_outlined,
-        color: Pal.err,
-        hint: const Text('รายการ', style: TextStyle(fontSize: 11, color: Pal.muted)),
-      ),
-    ];
-    return LayoutBuilder(
-      builder: (context, c) {
-        if (c.maxWidth < 900) {
-          return Column(
-            children: [
-              for (var i = 0; i < cards.length; i++) ...[
-                if (i > 0) const SizedBox(height: 12),
-                cards[i],
-              ],
-            ],
-          );
-        }
-        return Row(
-          children: [
-            for (var i = 0; i < cards.length; i++) ...[
-              if (i > 0) const SizedBox(width: 12),
-              Expanded(child: cards[i]),
-            ],
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _soPanel(List<Order> all, List<Order> rows, int start, int pages, bool? allSelected, List<String> allIds) {
-    return Panel(
-      pad: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-      title: 'รายการ Sales Order สำหรับสร้าง Transfer Request',
-      trailing: Row(
+  Widget _routeBar() {
+    Widget whs(String label, String code) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          ElevatedButton.icon(
-            onPressed: _selected.isEmpty || _sending ? null : _sendSelected,
-            icon: const Icon(Icons.send_rounded, size: 16),
-            label: Text(_sending ? 'กำลังส่ง...' : 'สร้าง TR การขายที่เลือก (${_selected.length})'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          const Icon(Icons.warehouse_outlined, size: 18, color: Pal.primary),
+          const SizedBox(width: 6),
+          Text('$label : $code', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 7, 14, 7),
+      decoration: BoxDecoration(
+        color: Pal.primarySoft,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
             ),
+            child: const Icon(Icons.warehouse_outlined, size: 18, color: Pal.primary),
           ),
           const SizedBox(width: 10),
-          Text('เลือกแล้ว ${_selected.length} รายการ', style: const TextStyle(color: Pal.muted, fontSize: 13)),
+          const Text('เส้นทางการโอนสินค้า', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+          const SizedBox(width: 4),
+          const Text('(กำหนดโดยระบบ)', style: TextStyle(color: Pal.muted, fontSize: 12, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 20),
+          whs('คลังต้นทาง', _fromCode),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 10),
+            child: Icon(Icons.arrow_forward_rounded, size: 16, color: Pal.muted),
+          ),
+          whs('คลังปลายทาง', _toCode),
         ],
       ),
-      child: Column(
+    );
+  }
+
+  Widget _soPanel(int total, List<Order> rows, int start, int pages, bool? allSelected, List<String> allIds) {
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DataTable(
-            headingRowColor: tableHeadBg,
-            headingTextStyle: tableHead,
-            headingRowHeight: 44,
-            columnSpacing: 14,
-            horizontalMargin: 8,
-            dataRowMinHeight: 48,
-            dataRowMaxHeight: 56,
-            showCheckboxColumn: false,
-            columns: [
-              DataColumn(
-                label: SizedBox(
-                  width: 28,
-                  child: Checkbox(
-                    tristate: true,
-                    value: allSelected,
-                    visualDensity: VisualDensity.compact,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    onChanged: allIds.isEmpty
-                        ? null
-                        : (_) => setState(() {
-                              if (allSelected == true) {
-                                _selected.removeAll(allIds);
-                              } else {
-                                _selected.addAll(allIds);
+          Expanded(
+            child: StickyTable(
+              minWidth: 920,
+              widths: const [
+                FixedColumnWidth(44),
+                FlexColumnWidth(1.4),
+                FlexColumnWidth(1.8),
+                FlexColumnWidth(1.0),
+                FlexColumnWidth(1.0),
+                FlexColumnWidth(1.0),
+                FlexColumnWidth(1.1),
+              ],
+              headers: [
+                Checkbox(
+                  tristate: true,
+                  value: allSelected,
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: allIds.isEmpty
+                      ? null
+                          : (_) => setState(() {
+                            if (allSelected == true) {
+                              _selected.removeAll(allIds);
+                              for (final id in allIds) {
+                                _picked.remove(id);
                               }
-                            }),
-                  ),
+                            } else {
+                              _selected.addAll(allIds);
+                              for (final o in rows) {
+                                _picked[o.id] = o;
+                              }
+                            }
+                          }),
                 ),
-              ),
-              const DataColumn(label: Text('วันที่', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('Sales Order No.', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('ลูกค้า', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('Platform', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('คลังต้นทาง', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('คลังปลายทาง', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('จำนวนรายการ', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('จำนวนรวม', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('สถานะ', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('SAP Status', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('Action', maxLines: 1, softWrap: false)),
-            ],
-            rows: [
-              for (final o in rows)
-                DataRow(
-                  cells: [
-                    DataCell(
-                      Checkbox(
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        value: _selected.contains(o.id),
-                        onChanged: (v) => setState(() {
-                          if (v == true) {
-                            _selected.add(o.id);
-                          } else {
-                            _selected.remove(o.id);
-                          }
-                        }),
-                      ),
+                const Text('วันที่', maxLines: 1, softWrap: false),
+                const Text('Sales Order No.', maxLines: 1, softWrap: false),
+                const Text('แพลตฟอร์ม', maxLines: 1, softWrap: false),
+                const Text('จำนวนรายการ', maxLines: 1, softWrap: false),
+                const Text('สถานะ', maxLines: 1, softWrap: false),
+                const Text('Action', maxLines: 1, softWrap: false),
+              ],
+              rows: [
+                for (final o in rows)
+                  [
+                    Checkbox(
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      value: _selected.contains(o.id),
+                      onChanged: (v) => setState(() {
+                        if (v == true) {
+                          _selected.add(o.id);
+                          _picked[o.id] = o;
+                        } else {
+                          _selected.remove(o.id);
+                          _picked.remove(o.id);
+                        }
+                      }),
                     ),
-                    DataCell(Text(dtFmt.format(o.createdAt))),
-                    DataCell(Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600))),
-                    DataCell(Text(_cust(o), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    DataCell(_plat(o.channel)),
-                    DataCell(Text(_fromWhs(o), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    DataCell(Text(_toWhs(o), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    DataCell(Text(o.lines.isNotEmpty ? '${o.lines.length}' : (o.itemCount > 0 ? '${o.itemCount}' : '-'))),
-                    DataCell(Text(nFmt.format(o.total))),
-                    DataCell(_soPill(_soKind(o))),
-                    DataCell(sapStatusPill(_trFor(o)?.status.isNotEmpty == true ? _trFor(o)!.status : o.transferStatus)),
-                    DataCell(
-                      TextButton(
-                        onPressed: () => context.go('/orders/${Uri.encodeComponent(o.id)}'),
-                        style: TextButton.styleFrom(
-                          visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                        child: const Text('ดูรายละเอียด'),
+                    Text(dtFmt.format(o.createdAt)),
+                    Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    _plat(o.channel),
+                    Text(o.lines.isNotEmpty ? '${o.lines.length}' : (o.itemCount > 0 ? '${o.itemCount}' : '-')),
+                    _soPill(_soKind(o)),
+                    TextButton(
+                      onPressed: () => context.go('/orders/${Uri.encodeComponent(o.id)}'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                       ),
+                      child: const Text('ดูรายละเอียด'),
                     ),
                   ],
-                ),
-            ],
+              ],
+            ),
           ),
           if (rows.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Center(child: Text('ยังไม่มี Sales Order สำหรับสร้าง Transfer Request', style: TextStyle(color: Pal.muted))),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 28),
+              child: Center(
+                child: Text(
+                  _soLoading
+                      ? 'กำลังโหลด...'
+                      : (_soError ?? 'ยังไม่มี Sales Order สำหรับสร้าง Transfer Request'),
+                  style: const TextStyle(color: Pal.muted),
+                ),
+              ),
             ),
           const SizedBox(height: 8),
           Wrap(
@@ -1105,148 +1109,90 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
             runSpacing: 8,
             children: [
               Text(
-                all.isEmpty ? 'แสดง 0 รายการ' : 'แสดง ${start + 1} - ${start + rows.length} จาก ${all.length} รายการ',
+                _soLoading && rows.isEmpty
+                    ? 'กำลังโหลด...'
+                    : total == 0
+                        ? 'แสดง 0 รายการ'
+                        : 'แสดง ${start + 1} - ${start + rows.length} จาก $total รายการ',
                 style: const TextStyle(color: Pal.muted, fontSize: 13),
               ),
-              Pages(page: _page, total: pages, onTap: (p) => setState(() => _page = p)),
+              Pages(
+                page: _page,
+                total: pages,
+                onTap: (p) {
+                  setState(() => _page = p);
+                  _reloadSo();
+                },
+              ),
             ],
           ),
         ],
-      ),
     );
   }
 
-  Widget _historyPanel(List<StockTransfer> rows) {
-    return Panel(
-      title: 'รายการประวัติการโอน',
-      pad: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-      child: Column(
+  Widget _historyPanel(List<StockTransfer> rows, int total, int start, int pages) {
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          DataTable(
-            headingRowColor: tableHeadBg,
-            headingTextStyle: tableHead,
-            headingRowHeight: 44,
-            columnSpacing: 16,
-            horizontalMargin: 8,
-            dataRowMinHeight: 48,
-            dataRowMaxHeight: 56,
-            columns: const [
-              DataColumn(label: Text('วันที่โอน', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('แพลตฟอร์ม', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('SAP DocNumber', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('อ้างอิง SO', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('จำนวนสินค้า', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('สถานะ', maxLines: 1, softWrap: false)),
-              DataColumn(label: Text('Action', maxLines: 1, softWrap: false)),
-            ],
-            rows: [
-              for (final t in rows)
-                DataRow(
-                  cells: [
-                    DataCell(Text(formatDt(t.displayAt))),
-                    DataCell(_trPlat(t)),
-                    DataCell(Text(t.sapDocNum.isEmpty ? '-' : t.sapDocNum)),
-                    DataCell(_clipText(t.referenceNo)),
-                    DataCell(Text('${t.items.length}')),
-                    DataCell(sapStatusPill(t.status)),
-                    DataCell(_detailBtn(t), onTap: () => _openTransfer(t)),
+          Expanded(
+            child: StickyTable(
+              minWidth: 1040,
+              widths: const [
+                FixedColumnWidth(44),
+                FlexColumnWidth(1.1),
+                FlexColumnWidth(1.0),
+                FlexColumnWidth(1.2),
+                FlexColumnWidth(1.1),
+                FlexColumnWidth(1.0),
+                FlexColumnWidth(0.9),
+                FlexColumnWidth(1.0),
+              ],
+              headers: const [
+                Text('#'),
+                Text('วันที่', maxLines: 1, softWrap: false),
+                Text('แพลตฟอร์ม', maxLines: 1, softWrap: false),
+                Text('TR No.', maxLines: 1, softWrap: false),
+                Text('จำนวนใบ SO', maxLines: 1, softWrap: false),
+                Text('จำนวนรวม', maxLines: 1, softWrap: false),
+                Text('สถานะ', maxLines: 1, softWrap: false),
+                Text('Action', maxLines: 1, softWrap: false),
+              ],
+              rows: [
+                for (var i = 0; i < rows.length; i++)
+                  [
+                    Text('${start + i + 1}', style: const TextStyle(color: Pal.muted)),
+                    Text(rows[i].displayAt == null ? '—' : dayFmt.format(rows[i].displayAt!)),
+                    _trPlat(rows[i]),
+                    InkWell(
+                      onTap: () => _openTransfer(rows[i]),
+                      child: Text(
+                        _trNo(rows[i]),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: _trNo(rows[i]) == '-' ? Pal.muted : Pal.text,
+                        ),
+                      ),
+                    ),
+                    _soCountCell(rows[i]),
+                    _qtyCell(rows[i]),
+                    _trHistStatus(rows[i].status),
+                    TextButton(
+                      onPressed: () => _openTransfer(rows[i]),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      child: const Text('ดูรายละเอียด'),
+                    ),
                   ],
-                ),
-            ],
+              ],
+            ),
           ),
           if (rows.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 28),
               child: Center(child: Text('ยังไม่มีข้อมูลประวัติการโอน', style: TextStyle(color: Pal.muted))),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _clipText(String raw, {TextStyle? style}) {
-    final t = raw.trim().isEmpty || raw == '-' ? '-' : raw;
-    return Tooltip(
-      message: t,
-      waitDuration: const Duration(milliseconds: 400),
-      child: Text(t, maxLines: 1, overflow: TextOverflow.ellipsis, style: style),
-    );
-  }
-
-  Widget _recentTable(List<StockTransfer> recent) {
-    Widget head(String label) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
-        child: Text(label, style: tableHead, maxLines: 1, overflow: TextOverflow.ellipsis),
-      );
-    }
-
-    Widget cell(Widget child, {double pad = 8}) {
-      return Padding(
-        padding: EdgeInsets.symmetric(horizontal: pad, vertical: 10),
-        child: child,
-      );
-    }
-
-    return Table(
-      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-      columnWidths: const {
-        0: IntrinsicColumnWidth(),
-        1: IntrinsicColumnWidth(),
-        2: FlexColumnWidth(0.9),
-        3: FlexColumnWidth(1.6),
-        4: IntrinsicColumnWidth(),
-        5: IntrinsicColumnWidth(),
-        6: IntrinsicColumnWidth(),
-      },
-      children: [
-        TableRow(
-          decoration: const BoxDecoration(color: Color(0xFFF8FAFC)),
-          children: [
-            head('วันที่โอน'),
-            head('แพลตฟอร์ม'),
-            head('SAP DocNumber'),
-            head('อ้างอิง SO'),
-            head('จำนวนสินค้า'),
-            head('สถานะ'),
-            head('Action'),
-          ],
-        ),
-        for (final t in recent)
-          TableRow(
-            children: [
-              cell(Text(formatDt(t.displayAt), maxLines: 1, overflow: TextOverflow.ellipsis)),
-              cell(_trPlat(t)),
-              cell(_clipText(t.sapDocNum)),
-              cell(_clipText(t.referenceNo)),
-              cell(Text('${t.items.length}')),
-              cell(sapStatusPill(t.status)),
-              cell(_detailBtn(t)),
-            ],
-          ),
-      ],
-    );
-  }
-
-  Widget _bottom(List<StockTransfer> recent, int total, int start, int pages) {
-    return Panel(
-      pad: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-      title: 'ประวัติการโอนล่าสุด',
-      trailing: TextButton(
-        onPressed: () => setState(() => _tab = 1),
-        child: const Text('ดูประวัติการโอนทั้งหมด →'),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (recent.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 28),
-              child: Text('ยังไม่มีประวัติการโอน', style: TextStyle(color: Pal.muted)),
-            )
-          else
-            _recentTable(recent),
           const SizedBox(height: 8),
           Wrap(
             alignment: WrapAlignment.spaceBetween,
@@ -1254,14 +1200,332 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
             runSpacing: 8,
             children: [
               Text(
-                total == 0 ? 'แสดง 0 รายการ' : 'แสดง ${start + 1} - ${start + recent.length} จาก $total รายการ',
+                total == 0 ? 'แสดง 0 รายการ' : 'แสดง ${start + 1} - ${start + rows.length} จาก $total รายการ',
                 style: const TextStyle(color: Pal.muted, fontSize: 13),
               ),
               Pages(page: _histPage, total: pages, onTap: (p) => setState(() => _histPage = p)),
             ],
           ),
         ],
-      ),
+    );
+  }
+
+}
+
+String _soKeyNorm(String raw) {
+  var v = raw.trim();
+  if (v.toUpperCase().startsWith('SO-')) v = v.substring(3).trim();
+  return v;
+}
+
+List<String> _transferSoKeys(StockTransfer t) {
+  final first = <String, String>{};
+  for (final raw in [...t.salesOrderIds, ...t.referenceNo.split(RegExp(r'[,;]+'))]) {
+    final k = raw.trim();
+    if (k.isEmpty || k == '-') continue;
+    final norm = _soKeyNorm(k);
+    if (norm.isEmpty) continue;
+    final id = norm.toLowerCase();
+    final existing = first[id];
+    if (existing == null || (k.toUpperCase().startsWith('SO-') && !existing.toUpperCase().startsWith('SO-'))) {
+      first[id] = k;
+    }
+  }
+  return first.values.toList();
+}
+
+class _TrDetailDialog extends StatefulWidget {
+  const _TrDetailDialog({
+    required this.t,
+    required this.trNo,
+    required this.soCount,
+  });
+
+  final StockTransfer t;
+  final String trNo;
+  final int soCount;
+
+  @override
+  State<_TrDetailDialog> createState() => _TrDetailDialogState();
+}
+
+class _TrDetailDialogState extends State<_TrDetailDialog> {
+  int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final missing = [for (final key in _soKeys()) if (_orderOf(key) == null) key];
+    if (missing.isEmpty) return;
+    Future(() async {
+      for (final key in missing) {
+        await OrderStore.instance.loadOne(key);
+        if (_orderOf(key) != null) continue;
+        final bare = key.replaceFirst(RegExp(r'^SO-', caseSensitive: false), '');
+        if (bare != key) await OrderStore.instance.loadOne(bare);
+      }
+      if (mounted) setState(() {});
+    });
+  }
+
+  String _whs(String code, String name, {required String fallback, required String fallbackName}) {
+    var c = code.trim();
+    if (c.isEmpty || c == '-') c = fallback;
+    final live = warehouseByCode(c);
+    var n = (live?.name ?? name).trim();
+    if (n.isEmpty || n == '-' || n == c) n = fallbackName;
+    if (n.isEmpty) return c;
+    return '$c : $n';
+  }
+
+  List<String> _soKeys() => _transferSoKeys(widget.t);
+
+  Order? _orderOf(String key) {
+    final norm = _soKeyNorm(key).toLowerCase();
+    for (final o in OrderStore.instance.orders) {
+      if (o.id == key || _soKeyNorm(o.id).toLowerCase() == norm) return o;
+      final sap = (o.sapDocNum ?? '').trim();
+      if (sap.isNotEmpty && (sap == key || sap.toLowerCase() == norm || 'so-$sap'.toLowerCase() == key.toLowerCase())) {
+        return o;
+      }
+    }
+    return null;
+  }
+
+  int _orderQty(Order o) {
+    if (o.lines.isNotEmpty) return o.lines.fold<int>(0, (a, l) => a + l.qty);
+    if (o.itemCount > 0) return o.itemCount;
+    return 1;
+  }
+
+  String _soNo(String key, Order? o) {
+    final sap = (o?.sapDocNum ?? '').trim();
+    if (sap.isNotEmpty) return sap;
+    final id = (o?.id ?? key).trim();
+    return id.isEmpty || id == '-' ? '-' : id;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.t;
+    final ch = ChannelX.fromApi(t.platform);
+    final qty = t.qtyTotal > 0 ? t.qtyTotal : t.items.length;
+    final keys = _soKeys();
+    final soRows = [
+      for (final key in keys)
+        () {
+          final o = _orderOf(key);
+          return (
+            no: _soNo(key, o),
+            qty: o == null ? 1 : _orderQty(o),
+            orderId: (o?.id ?? key).trim(),
+          );
+        }(),
+    ];
+    final creator = t.requestedBy.trim().isEmpty || t.requestedBy == '-' ? Session.instance.name : t.requestedBy;
+
+    Widget meta(String label, Widget value) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 12, color: Pal.muted)),
+            const SizedBox(height: 4),
+            DefaultTextStyle.merge(
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Pal.text),
+              child: value,
+            ),
+          ],
+        ),
+      );
+    }
+
+    Widget tab(String label, int i) {
+      final on = _tab == i;
+      return InkWell(
+        onTap: () => setState(() => _tab = i),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: on ? Pal.primary : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: on ? Colors.white : Pal.muted,
+            ),
+          ),
+        ),
+      );
+    }
+
+    void openSo(String id) {
+      final orderId = id.trim();
+      if (orderId.isEmpty || orderId == '-') return;
+      final router = GoRouter.of(context);
+      Navigator.of(context, rootNavigator: true).pop();
+      router.go('/orders/${Uri.encodeComponent(orderId)}');
+    }
+
+    final tableN = _tab == 0 ? (soRows.isEmpty ? 1 : soRows.length) : (t.items.isEmpty ? 1 : t.items.length);
+    final tableLock = tableN > 6;
+
+    final soTable = StickyTable(
+      fill: tableLock,
+      widths: const [
+        FixedColumnWidth(56),
+        FlexColumnWidth(1.8),
+        FlexColumnWidth(1.0),
+        FlexColumnWidth(1.2),
+      ],
+      headers: const [
+        Text('ลำดับ'),
+        Text('SO No. (SAP)'),
+        Text('จำนวนสินค้า'),
+        Text('Action'),
+      ],
+      rows: [
+        if (soRows.isEmpty)
+          const [Text('-'), Text('-'), Text('-'), Text('-')]
+        else
+          for (var i = 0; i < soRows.length; i++)
+            [
+              Text('${i + 1}'),
+              Text(soRows[i].no, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text('${nFmt.format(soRows[i].qty)} ชิ้น'),
+              TextButton(
+                onPressed: () => openSo(soRows[i].orderId),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+                child: const Text('ดูรายละเอียด'),
+              ),
+            ],
+      ],
+    );
+
+    final itemTable = StickyTable(
+      fill: tableLock,
+      widths: const [
+        FixedColumnWidth(56),
+        FlexColumnWidth(1.2),
+        FlexColumnWidth(2.0),
+        FlexColumnWidth(0.8),
+      ],
+      headers: const [
+        Text('ลำดับ'),
+        Text('SKU'),
+        Text('ชื่อสินค้า'),
+        Text('จำนวน'),
+      ],
+      rows: [
+        if (t.items.isEmpty)
+          const [Text('-'), Text('-'), Text('-'), Text('-')]
+        else
+          for (var i = 0; i < t.items.length; i++)
+            [
+              Text('${i + 1}'),
+              Text(t.items[i].sku, style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(t.items[i].name.isEmpty ? '-' : t.items[i].name, maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text('${nFmt.format(t.items[i].qty)} ชิ้น'),
+            ],
+      ],
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text('รายละเอียด Transfer Request', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: meta('เลขที่ TR (SAP)', Text(widget.trNo))),
+                  Expanded(child: meta('วันที่สร้าง', Text(t.displayAt == null ? '-' : dtFmt.format(t.displayAt!)))),
+                ],
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: meta('แพลตฟอร์ม', Text(ch?.label ?? (t.platform.trim().isEmpty ? '-' : t.platform)))),
+                  Expanded(child: meta('ผู้สร้าง', Text(creator.isEmpty ? '-' : creator))),
+                ],
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: meta('คลังต้นทาง', Text(_whs(t.fromWarehouseId, t.fromWarehouseName, fallback: 'MDL', fallbackName: 'คลังหลัก')))),
+                  Expanded(child: meta('คลังปลายทาง', Text(_whs(t.toWarehouseId, t.toWarehouseName, fallback: 'ONLINE', fallbackName: 'คลังออนไลน์')))),
+                ],
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: meta('จำนวน SO', Text('${keys.isNotEmpty ? keys.length : widget.soCount} ใบ'))),
+                  Expanded(child: meta('จำนวนสินค้าทั้งหมด', Text('${nFmt.format(qty)} ชิ้น'))),
+                ],
+              ),
+              Row(
+                children: [
+                  tab('รายการ SO (${keys.length})', 0),
+                  const SizedBox(width: 8),
+                  tab('รายการสินค้า (${t.items.length})', 1),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: Pal.line),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: tableLock
+                  ? SizedBox(height: 240, child: _tab == 0 ? soTable : itemTable)
+                  : (_tab == 0 ? soTable : itemTable),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: ElevatedButton(
+              onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+              child: const Text('ปิด'),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -17,7 +19,7 @@ class OrdersScreen extends StatefulWidget {
 }
 
 class _OrdersScreenState extends State<OrdersScreen> {
-  static const _pageSize = 20;
+  static const _pageSize = 50;
 
   String _ch = 'all';
   String _shop = 'all';
@@ -28,6 +30,12 @@ class _OrdersScreenState extends State<OrdersScreen> {
   DateTime? _from = DateTime(2026, 10, 1);
   DateTime? _to;
   final _search = TextEditingController();
+  List<Order> _rows = [];
+  int _total = 0;
+  bool _loading = false;
+  String? _error;
+  int _req = 0;
+  Timer? _searchDebounce;
 
   @override
   void initState() {
@@ -36,18 +44,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
     _to = DateTime(now.year, now.month, now.day);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final orders = OrderStore.instance;
-      if (orders.orders.isEmpty) {
-        orders.load();
-      } else {
-        orders.load(silent: true);
-      }
+      _reload();
       if (ShopStore.instance.realShops.isEmpty) ShopStore.instance.load();
     });
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _search.dispose();
     super.dispose();
   }
@@ -55,38 +59,99 @@ class _OrdersScreenState extends State<OrdersScreen> {
   DateTime _dateOnly(DateTime t) => DateTime(t.year, t.month, t.day);
 
   String _sapKey(Order o) {
-    final doc = (o.sapDocNum ?? '').trim();
-    final raw = doc.isNotEmpty ? 'sap_ok' : o.syncStatus;
-    final v = raw.toLowerCase();
-    if (v.contains('sap_ok') || v.contains('sapok') || v == 'ok') return 'ok';
-    if (v.contains('sap_error') || v.contains('error')) return 'error';
-    if (v.contains('saved') || v.isEmpty) return 'wait';
-    return 'other';
+    if (o.status == OrderStatus.cancelled) return 'cancelled';
+
+    final hasSo = (o.sapDocNum ?? '').trim().isNotEmpty;
+    final hasDelivery = (o.deliveryDocNum ?? '').trim().isNotEmpty;
+
+    if (hasDelivery) return 'delivery_ok';
+    if (hasSo) return 'delivery_wait';
+    return 'wait';
   }
 
-  bool get _hasDateFilter => _from != null && _to != null;
+  bool _sapMatch(Order o) {
+    if (_sap == 'all') return true;
+    final key = _sapKey(o);
+    switch (_sap) {
+      case 'so_ok':
+        return key == 'so_ok' || key == 'delivery_wait' || key == 'delivery_ok';
+      case 'ok':
+        return key == 'ok' || key == 'delivery_ok';
+      default:
+        return key == _sap;
+    }
+  }
+
+  String _sapPill(Order o) {
+    if (_sap == 'so_ok' && _sapMatch(o)) return 'so_ok';
+    return _sapKey(o);
+  }
 
   String? get _platformQuery => _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform;
 
+  String? get _shopQuery {
+    if (_shop == 'all') return null;
+    final cut = _shop.indexOf('|');
+    final id = cut >= 0 ? _shop.substring(cut + 1) : _shop;
+    if (id.isEmpty || id == '-') return null;
+    return id;
+  }
+
+  Future<void> _reload() async {
+    final req = ++_req;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final page = await Api.getOrdersPage(
+        platform: _platformQuery,
+        shopId: _shopQuery,
+        status: _st,
+        sap: _sap,
+        q: _q,
+        from: _from,
+        to: _to,
+        page: _page,
+        pageSize: _pageSize,
+      );
+      if (!mounted || req != _req) return;
+      setState(() {
+        _rows = page.items;
+        _total = page.total;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted || req != _req) return;
+      setState(() {
+        _error = e is ApiException ? e.message : e.toString();
+        _loading = false;
+      });
+    }
+  }
+
   Future<void> _searchTap() async {
+    _searchDebounce?.cancel();
     setState(() {
       _q = _search.text.trim();
       _page = 1;
     });
-    await OrderStore.instance.load(platform: _platformQuery);
+    await _reload();
   }
 
   void _onQuery(String v) {
-    setState(() {
-      _q = v;
-      _page = 1;
+    _q = v;
+    _page = 1;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (mounted) _reload();
     });
   }
 
   Future<void> _syncNow() async {
     try {
       await MarketplaceSyncStore.instance.syncNow(force: false);
-      await OrderStore.instance.load(platform: _platformQuery);
+      await _reload();
       if (!mounted) return;
       await showSystemStatusSnack(context);
     } catch (e) {
@@ -95,6 +160,22 @@ class _OrdersScreenState extends State<OrdersScreen> {
         SnackBar(content: Text(e is ApiException ? e.message : e.toString())),
       );
     }
+  }
+
+  void _applyPeriod(DatePeriod period) {
+    if (period == DatePeriod.custom) {
+      _pickRange().whenComplete(() {
+        if (mounted) setState(() {});
+      });
+      return;
+    }
+    final range = rangeOfPeriod(period);
+    setState(() {
+      _from = range.$1;
+      _to = range.$2;
+      _page = 1;
+    });
+    _reload();
   }
 
   Future<void> _pickRange() async {
@@ -115,34 +196,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       }
       _page = 1;
     });
-  }
-
-  ShopConn? get _selectedShop {
-    if (_shop == 'all') return null;
-    for (final s in ShopStore.instance.realShops) {
-      if ('${s.channel.name}|${s.apiShopId}' == _shop) return s;
-      if ('${s.channel.name}|${s.shopId}' == _shop) return s;
-      if ('${s.channel.name}|${s.shop}' == _shop) return s;
-    }
-    return null;
-  }
-
-  bool _matchShop(Order o) {
-    final shop = _selectedShop;
-    if (shop == null) return true;
-    if (o.channel != shop.channel) return false;
-    final sameCh = [
-      for (final s in ShopStore.instance.realShops)
-        if (s.isReal && s.channel == shop.channel) s,
-    ];
-    if (sameCh.length <= 1) return true;
-    final orderKeys = {
-      for (final v in [o.shopId, o.shopName, o.companyId])
-        if (v.trim().isNotEmpty && v.trim() != '-') v.trim().toLowerCase(),
-    };
-    if (orderKeys.isEmpty) return true;
-    final want = shop.identityKeys;
-    return orderKeys.any((id) => want.contains(id) || want.any((w) => w.contains(id) || id.contains(w)));
+    await _reload();
   }
 
   DateTime? _lastSyncAt() {
@@ -151,53 +205,30 @@ class _OrdersScreenState extends State<OrdersScreen> {
       final t = s.lastSync;
       if (t != null && (last == null || t.isAfter(last))) last = t;
     }
-    for (final o in OrderStore.instance.orders) {
-      final t = o.lastSyncedAt;
-      if (t != null && (last == null || t.isAfter(last))) last = t;
-    }
     return last;
-  }
-
-  List<Order> _filtered() {
-    final q = _q.toLowerCase();
-    return OrderStore.instance.orders.where((o) {
-      if (_ch != 'all' && o.channel.name != _ch) return false;
-      if (!_matchShop(o)) return false;
-      if (_st != 'all' && o.status.name != _st) return false;
-      if (_sap != 'all' && _sapKey(o) != _sap) return false;
-      if (_hasDateFilter) {
-        final day = _dateOnly(o.createdAt);
-        if (day.isBefore(_from!) || day.isAfter(_to!)) return false;
-      }
-      if (q.isNotEmpty && !o.id.toLowerCase().contains(q)) return false;
-      return true;
-    }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_sap == 'invoice_wait' || _sap == 'invoice_fail') _sap = 'all';
     return ListenableBuilder(
       listenable: Listenable.merge([
-        OrderStore.instance,
         ShopStore.instance,
         MarketplaceSyncStore.instance,
       ]),
       builder: (context, _) {
-        final store = OrderStore.instance;
         final syncStore = MarketplaceSyncStore.instance;
-        final all = _filtered();
-        final pages = (all.length / _pageSize).ceil().clamp(1, 9999);
-        if (_page > pages) _page = pages;
+        final pages = (_total / _pageSize).ceil().clamp(1, 9999);
         final start = (_page - 1) * _pageSize;
-        final rows = all.skip(start).take(_pageSize).toList();
-        final busy = store.loading || syncStore.syncing;
-        final fromN = all.isEmpty ? 0 : start + 1;
+        final rows = _rows;
+        final busy = _loading || syncStore.syncing;
+        final fromN = _total == 0 ? 0 : start + 1;
         final toN = start + rows.length;
 
-        return SingleChildScrollView(
+        return Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text('คำสั่งซื้อ', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
               const SizedBox(height: 4),
@@ -206,11 +237,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 style: TextStyle(color: Pal.muted, fontSize: 14),
               ),
               const SizedBox(height: 20),
-              Panel(
-                pad: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+              Expanded(
+                child: Panel(
+                  expand: true,
+                  pad: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                     Align(
                       alignment: Alignment.centerRight,
                       child: Text(
@@ -220,14 +253,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     ),
                     const SizedBox(height: 4),
                     Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
+                      spacing: 8,
+                      runSpacing: 10,
                       crossAxisAlignment: WrapCrossAlignment.end,
                       children: [
                         Drop<String>(
                           label: 'แพลตฟอร์ม',
                           value: _ch,
-                          width: 160,
+                          width: 128,
                           onChanged: (v) {
                             _ch = v ?? 'all';
                             _shop = 'all';
@@ -243,11 +276,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         Drop<String>(
                           label: 'ร้านค้า',
                           value: _shop,
-                          width: 200,
-                          onChanged: (v) => setState(() {
-                            _shop = v ?? 'all';
-                            _page = 1;
-                          }),
+                          width: 140,
+                          onChanged: (v) {
+                            setState(() {
+                              _shop = v ?? 'all';
+                              _page = 1;
+                            });
+                            _reload();
+                          },
                           items: [
                             const DropdownMenuItem(value: 'all', child: Text('ทุกร้าน')),
                             for (final s in ShopStore.instance.realShops)
@@ -261,11 +297,14 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         Drop<String>(
                           label: 'สถานะ',
                           value: _st,
-                          width: 200,
-                          onChanged: (v) => setState(() {
-                            _st = v ?? 'all';
-                            _page = 1;
-                          }),
+                          width: 128,
+                          onChanged: (v) {
+                            setState(() {
+                              _st = v ?? 'all';
+                              _page = 1;
+                            });
+                            _reload();
+                          },
                           items: const [
                             DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
                             DropdownMenuItem(value: 'unpaid', child: Text('รอชำระเงิน')),
@@ -279,127 +318,124 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         Drop<String>(
                           label: 'สถานะ SAP',
                           value: _sap,
-                          width: 180,
-                          onChanged: (v) => setState(() {
-                            _sap = v ?? 'all';
-                            _page = 1;
-                          }),
+                          width: 168,
+                          onChanged: (v) {
+                            setState(() {
+                              _sap = v ?? 'all';
+                              _page = 1;
+                            });
+                            _reload();
+                          },
                           items: const [
                             DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                            DropdownMenuItem(value: 'wait', child: Text('รอ SAP')),
+                            DropdownMenuItem(value: 'wait', child: Text('รอสร้างใบ SO')),
+                            DropdownMenuItem(value: 'so_ok', child: Text('สร้างใบ SO สำเร็จ')),
+                            DropdownMenuItem(value: 'so_fail', child: Text('ใบ SO ล้มเหลว')),
+                            DropdownMenuItem(value: 'delivery_wait', child: Text('รอสร้าง Delivery')),
+                            DropdownMenuItem(value: 'delivery_ok', child: Text('สร้าง Delivery สำเร็จ')),
+                            DropdownMenuItem(value: 'delivery_fail', child: Text('Delivery ล้มเหลว')),
                             DropdownMenuItem(value: 'ok', child: Text('สำเร็จ')),
-                            DropdownMenuItem(value: 'error', child: Text('SAP ล้มเหลว')),
+                            DropdownMenuItem(value: 'cancelled', child: Text('ยกเลิก')),
                           ],
                         ),
                         DateRangeField(from: _from, to: _to, onTap: _pickRange),
+                        PeriodField(value: periodOfRange(_from, _to), onChanged: _applyPeriod),
                         SizedBox(
-                          width: 260,
+                          width: 168,
                           child: TextField(
                             controller: _search,
                             onChanged: _onQuery,
                             onSubmitted: (_) => _searchTap(),
+                            style: const TextStyle(fontSize: 13),
                             decoration: const InputDecoration(
                               hintText: 'ค้นหาเลขคำสั่งซื้อ',
-                              prefixIcon: Icon(Icons.search, size: 20),
+                              hintStyle: TextStyle(fontSize: 12),
+                              prefixIcon: Icon(Icons.search, size: 16),
+                              prefixIconConstraints: BoxConstraints(minWidth: 36, minHeight: 36),
                               isDense: true,
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                             ),
                           ),
                         ),
                         SizedBox(
-                          height: 44,
+                          height: 40,
                           child: ElevatedButton.icon(
                             onPressed: busy ? null : _searchTap,
-                            icon: const Icon(Icons.search, size: 18),
-                            label: const Text('ค้นหา'),
+                            icon: const Icon(Icons.search, size: 16),
+                            label: const Text('ค้นหา', style: TextStyle(fontSize: 13)),
                           ),
                         ),
-                        SizedBox(
-                          height: 44,
-                          child: OutlinedButton.icon(
-                            onPressed: busy ? null : _syncNow,
-                            icon: syncStore.syncing
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.sync_rounded, size: 18),
-                            label: Text(syncStore.syncing ? 'กำลัง Sync...' : 'Sync Now'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Pal.text,
-                              backgroundColor: Colors.white,
-                              side: const BorderSide(color: Pal.line),
-                            ),
-                          ),
-                        ),
+                        LastSyncButton(syncing: syncStore.syncing, onSync: busy ? null : _syncNow),
                       ],
                     ),
-                    if (store.error != null) ...[
+                    if (_error != null) ...[
                       const SizedBox(height: 12),
-                      Text(store.error!, style: const TextStyle(color: Pal.err)),
+                      Text(_error!, style: const TextStyle(color: Pal.err)),
                     ],
                     if (busy) ...[
                       const SizedBox(height: 16),
                       const LinearProgressIndicator(minHeight: 3),
                     ],
                     const SizedBox(height: 16),
-                    DataTable(
-                      headingRowColor: tableHeadBg,
-                      headingTextStyle: tableHead,
-                      headingRowHeight: 40,
-                      horizontalMargin: 8,
-                      columnSpacing: 16,
-                      dataRowMinHeight: 40,
-                      dataRowMaxHeight: 48,
-                      columns: const [
-                        DataColumn(label: Text('#')),
-                        DataColumn(label: Text('Order No.')),
-                        DataColumn(label: Text('Platform')),
-                        DataColumn(label: Text('ชื่อร้าน')),
-                        DataColumn(label: Text('วันที่')),
-                        DataColumn(label: Text('ยอดรวม')),
-                        DataColumn(label: Text('สถานะออเดอร์')),
-                        DataColumn(label: Text('สถานะ SAP')),
-                        DataColumn(label: Text('SAP DocNum')),
-                        DataColumn(label: Text('Action')),
-                      ],
-                      rows: [
-                        for (var i = 0; i < rows.length; i++)
-                          DataRow(
-                            cells: [
-                              DataCell(Text('${start + i + 1}', style: const TextStyle(color: Pal.muted))),
-                              DataCell(Text(rows[i].id, style: const TextStyle(fontWeight: FontWeight.w600))),
-                              DataCell(ChannelLabel(channel: rows[i].channel)),
-                              DataCell(Text(
+                    Expanded(
+                      child: StickyTable(
+                        minWidth: 1180,
+                        widths: const [
+                          FixedColumnWidth(48),
+                          FlexColumnWidth(1.6),
+                          FlexColumnWidth(1.0),
+                          FlexColumnWidth(1.3),
+                          FlexColumnWidth(1.2),
+                          FlexColumnWidth(1.0),
+                          FlexColumnWidth(1.1),
+                          FlexColumnWidth(1.1),
+                          FlexColumnWidth(1.0),
+                          FlexColumnWidth(0.9),
+                          FlexColumnWidth(1.0),
+                        ],
+                        headers: const [
+                          Text('#'),
+                          Text('Order No.'),
+                          Text('Platform'),
+                          Text('ชื่อร้าน'),
+                          Text('วันที่'),
+                          Text('ยอดรวม'),
+                          Text('สถานะออเดอร์'),
+                          Text('สถานะ SAP'),
+                          Text('ใบ SO', maxLines: 1, softWrap: false),
+                          Text('Delivery', maxLines: 1, softWrap: false),
+                          Text('Action'),
+                        ],
+                        rows: [
+                          for (var i = 0; i < rows.length; i++)
+                            [
+                              Text('${start + i + 1}', style: const TextStyle(color: Pal.muted)),
+                              Text(rows[i].id, style: const TextStyle(fontWeight: FontWeight.w600)),
+                              ChannelLabel(channel: rows[i].channel),
+                              Text(
                                 ShopStore.instance.nameFor(channel: rows[i].channel, shopId: rows[i].shopId, shopName: rows[i].shopName),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                              )),
-                              DataCell(Text(dtFmt.format(rows[i].createdAt))),
-                              DataCell(Text(baht.format(rows[i].total), style: const TextStyle(fontWeight: FontWeight.w600))),
-                              DataCell(orderPill(rows[i].status)),
-                              DataCell(orderSyncPill(
-                                rows[i].sapDocNum != null && rows[i].sapDocNum!.isNotEmpty
-                                    ? 'sap_ok'
-                                    : rows[i].syncStatus,
-                              )),
-                              DataCell(Text(rows[i].sapDocNum ?? '-')),
-                              DataCell(
-                                TextButton(
-                                  onPressed: () => context.go('/orders/${Uri.encodeComponent(rows[i].id)}'),
-                                  style: TextButton.styleFrom(
-                                    visualDensity: VisualDensity.compact,
-                                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                                  ),
-                                  child: const Text('ดูรายละเอียด'),
+                              ),
+                              Text(dtFmt.format(rows[i].createdAt)),
+                              Text(baht.format(rows[i].total), style: const TextStyle(fontWeight: FontWeight.w600)),
+                              orderPill(rows[i].status),
+                              orderSyncPill(_sapPill(rows[i])),
+                              Text(rows[i].sapDocNum ?? '-'),
+                              Text((rows[i].deliveryDocNum ?? '').trim().isEmpty ? '-' : rows[i].deliveryDocNum!),
+                              TextButton(
+                                onPressed: () => context.go('/orders/${Uri.encodeComponent(rows[i].id)}'),
+                                style: TextButton.styleFrom(
+                                  visualDensity: VisualDensity.compact,
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
                                 ),
+                                child: const Text('ดูรายละเอียด'),
                               ),
                             ],
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                    if (rows.isEmpty && !busy)
+                    if (rows.isEmpty && !_loading)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 24),
                         child: Center(child: Text('ไม่พบคำสั่งซื้อ')),
@@ -408,17 +444,28 @@ class _OrdersScreenState extends State<OrdersScreen> {
                     Row(
                       children: [
                         Text(
-                          all.isEmpty
-                              ? 'แสดง 0 รายการ'
-                              : 'แสดง $fromN - $toN จาก ${all.length} รายการ',
+                          _loading && _total == 0
+                              ? 'กำลังโหลด...'
+                              : _total == 0
+                                  ? 'แสดง 0 รายการ'
+                                  : 'แสดง $fromN - $toN จาก $_total รายการ',
                           style: const TextStyle(color: Pal.muted, fontSize: 13),
                         ),
                         const Spacer(),
-                        Pages(page: _page, total: pages, onTap: (p) => setState(() => _page = p)),
+                        Pages(
+                          page: _page,
+                          total: pages,
+                          onTap: (p) {
+                            if (p == _page) return;
+                            setState(() => _page = p);
+                            _reload();
+                          },
+                        ),
                       ],
                     ),
                   ],
                 ),
+              ),
               ),
             ],
           ),

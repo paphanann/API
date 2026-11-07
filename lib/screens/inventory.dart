@@ -82,6 +82,21 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
   }
 
+  void _applyPeriod(DatePeriod period) {
+    if (period == DatePeriod.custom) {
+      _pickRange().whenComplete(() {
+        if (mounted) setState(() {});
+      });
+      return;
+    }
+    final range = rangeOfPeriod(period);
+    setState(() {
+      _from = range.$1;
+      _to = range.$2;
+      _page = 1;
+    });
+  }
+
   Future<void> _pickRange() async {
     final today = dateOnly(DateTime.now());
     final picked = await showSimpleCalendar(
@@ -220,6 +235,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                           ],
                         ),
                         DateRangeField(from: _from, to: _to, onTap: _pickRange),
+                        PeriodField(value: periodOfRange(_from, _to), onChanged: _applyPeriod),
                         SizedBox(
                           width: 260,
                           child: TextField(

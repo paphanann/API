@@ -47,8 +47,18 @@ class ProductVariant {
 
   bool get mapped => sapItemCode.isNotEmpty && sapItemCode != '-';
 
+  /// รหัสที่ร้านตั้งเอง — อย่าโชว์ model_id ซ้ำในคอลัมน์ SKU
+  String get sellerSku {
+    final s = sku.trim();
+    if (s.isEmpty || s == '-' || s == modelId) return '';
+    return s;
+  }
+
+  bool get hasSellerSku => sellerSku.isNotEmpty;
+
   String get problem {
     if (issue.isNotEmpty) return issue;
+    if (!hasSellerSku) return 'ไม่มี SKU';
     if (!mapped) return 'ไม่พบสินค้าใน SAP';
     return '';
   }
@@ -210,13 +220,49 @@ class Product {
     return variants.every((v) => v.mapped);
   }
 
+  int get mappedCount => hasVariants ? variants.where((v) => v.mapped).length : (mapped ? 1 : 0);
+
+  bool get hasMissingSku {
+    if (hasVariants) return variants.any((v) => !v.hasSellerSku);
+    return sku.trim().isEmpty || sku == '-';
+  }
+
+  MappingStatus get mappingStatus {
+    if (hasMissingSku) return MappingStatus.noSku;
+    if (hasVariants) {
+      if (variants.isNotEmpty && mappedCount == variants.length) return MappingStatus.mapped;
+      if (mappedCount > 0) return MappingStatus.partial;
+      return MappingStatus.unmapped;
+    }
+    return mapped ? MappingStatus.mapped : MappingStatus.unmapped;
+  }
+
+  String get mappingLabel {
+    final n = mappedCount;
+    final t = hasVariants ? variants.length : 1;
+    switch (mappingStatus) {
+      case MappingStatus.mapped:
+        return hasVariants ? 'จับคู่แล้ว ($n/$t)' : 'จับคู่แล้ว';
+      case MappingStatus.partial:
+        return 'จับคู่บางส่วน ($n/$t)';
+      case MappingStatus.unmapped:
+        return 'ยังไม่จับคู่';
+      case MappingStatus.noSku:
+        return 'ไม่มี SKU';
+    }
+  }
+
   String get problem {
     if (issue.isNotEmpty) return issue;
-    if (parentSap == 'บางส่วน' || (hasVariants && variants.any((v) => !v.mapped) && variants.any((v) => v.mapped))) {
-      return 'ไม่พบสินค้าใน SAP';
+    switch (mappingStatus) {
+      case MappingStatus.noSku:
+        return hasVariants ? 'ไม่มี SKU ในตัวเลือก' : 'ไม่มี SKU';
+      case MappingStatus.partial:
+      case MappingStatus.unmapped:
+        return 'ไม่พบสินค้าใน SAP';
+      case MappingStatus.mapped:
+        return '';
     }
-    if (!mapped) return 'ไม่พบสินค้าใน SAP';
-    return '';
   }
 }
 

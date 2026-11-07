@@ -207,7 +207,7 @@ class ShopStore extends PassStore {
       await Future.wait([
         ProductStore.instance.load(),
         OrderStore.instance.load(),
-        DashStore.instance.load(),
+        DashStore.instance.load(keepFilter: true),
       ]);
       success = msg;
       notifyListeners();
@@ -229,7 +229,7 @@ class ShopStore extends PassStore {
       await Future.wait([
         ProductStore.instance.load(),
         OrderStore.instance.load(),
-        DashStore.instance.load(),
+        DashStore.instance.load(keepFilter: true),
       ]);
       success = msg;
       notifyListeners();
