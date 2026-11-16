@@ -109,7 +109,7 @@ class DashData {
       lazadaShare: share(Channel.lazada),
       productCount: 0,
       soCount: orders.where((o) => o.status != OrderStatus.cancelled && o.status != OrderStatus.returned && (o.sapDocNum ?? '').trim().isNotEmpty).length,
-      deliveryCount: orders.where((o) => o.status != OrderStatus.cancelled && o.status != OrderStatus.returned && (o.deliveryDocNum ?? '').trim().isNotEmpty).length,
+      deliveryCount: orders.where((o) => o.status != OrderStatus.cancelled && o.status != OrderStatus.returned && o.hasDeliveryDoc).length,
       waitSo: orders.where((o) => o.status != OrderStatus.cancelled && o.status != OrderStatus.returned && (o.sapDocNum ?? '').trim().isEmpty).length,
       transferCount: orders.where((o) => o.transferDocNum.trim().isNotEmpty).length,
     );

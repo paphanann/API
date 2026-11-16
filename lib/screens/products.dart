@@ -17,12 +17,12 @@ class ProductsScreen extends StatefulWidget {
 }
 
 class _ProductsScreenState extends State<ProductsScreen> {
-  static const _pageSize = 50;
+  static const _pageSize = 20;
 
-  String _ch = 'all';
-  String _shop = 'all';
-  String _st = 'all';
-  String _map = 'all';
+  Set<String> _ch = {};
+  Set<String> _shops = {};
+  Set<String> _st = {};
+  Set<String> _map = {};
   String _q = '';
   int _page = 1;
   final _search = TextEditingController();
@@ -49,8 +49,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
       _q = _search.text.trim();
       _page = 1;
     });
-    final platform = _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform;
-    await ProductStore.instance.load(platform: platform);
+    await ProductStore.instance.load(platform: _platformQuery);
   }
 
   void _onQuery(String v) {
@@ -61,10 +60,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 
   Future<void> _syncNow() async {
-    final platform = _ch == 'all' ? null : Channel.values.byName(_ch).apiPlatform;
     try {
       await MarketplaceSyncStore.instance.syncNow(force: false);
-      await ProductStore.instance.load(platform: platform);
+      await ProductStore.instance.load(platform: _platformQuery);
       await InventoryStore.instance.load();
       if (!mounted) return;
       await showSystemStatusSnack(context);
@@ -89,15 +87,39 @@ class _ProductsScreenState extends State<ProductsScreen> {
     return last;
   }
 
+  String? get _platformQuery => _ch.length == 1 ? Channel.values.byName(_ch.first).apiPlatform : null;
+
+  bool _statusMatch(Product p) {
+    if (_st.isEmpty) return true;
+    if (_st.contains('active') && p.status != ProductStatus.inactive && p.stockTotal > 0) return true;
+    if (_st.contains('inactive') && p.status == ProductStatus.inactive) return true;
+    if (_st.contains('oos') && p.stockTotal <= 0 && p.status != ProductStatus.inactive) return true;
+    return false;
+  }
+
+  void _setPlatforms(Set<String> next) {
+    final shops = {..._shops};
+    if (next.isNotEmpty) {
+      shops.removeWhere((value) {
+        final cut = value.indexOf('|');
+        final channel = cut >= 0 ? value.substring(0, cut) : '';
+        return channel.isNotEmpty && !next.contains(channel);
+      });
+    }
+    setState(() {
+      _ch = next;
+      _shops = shops;
+      _page = 1;
+    });
+  }
+
   List<Product> _filtered() {
     final q = _q.toLowerCase();
     return ProductStore.instance.products.where((p) {
-      if (_ch != 'all' && p.channel.name != _ch) return false;
-      if (_shop != 'all' && _shop != '${p.channel.name}|${p.shopId}') return false;
-      if (_st == 'active' && (p.status == ProductStatus.inactive || p.stockTotal <= 0)) return false;
-      if (_st == 'inactive' && p.status != ProductStatus.inactive) return false;
-      if (_st == 'oos' && (p.stockTotal > 0 || p.status == ProductStatus.inactive)) return false;
-      if (_map != 'all' && p.mappingStatus.name != _map) return false;
+      if (_ch.isNotEmpty && !_ch.contains(p.channel.name)) return false;
+      if (_shops.isNotEmpty && !_shops.contains('${p.channel.name}|${p.shopId}')) return false;
+      if (!_statusMatch(p)) return false;
+      if (_map.isNotEmpty && !_map.contains(p.mappingStatus.name)) return false;
       if (q.isEmpty) return true;
       if (p.sku.toLowerCase().contains(q) || p.name.toLowerCase().contains(q) || p.displayId.toLowerCase().contains(q)) {
         return true;
@@ -156,67 +178,60 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       runSpacing: 12,
                       crossAxisAlignment: WrapCrossAlignment.end,
                       children: [
-                        Drop<String>(
+                        MultiDrop(
                           label: 'แพลตฟอร์ม',
-                          value: _ch,
-                          width: 160,
-                          onChanged: (v) => setState(() {
-                            _ch = v ?? 'all';
-                            _shop = 'all';
-                            _page = 1;
-                          }),
-                          items: [
-                            const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                            ...Channel.values.map((c) => DropdownMenuItem(value: c.name, child: Text(c.label))),
+                          selected: _ch,
+                          width: 168,
+                          onChanged: _setPlatforms,
+                          options: [
+                            const CheckOption('all', 'ทั้งหมด'),
+                            for (final c in Channel.values) CheckOption(c.name, c.label),
                           ],
                         ),
-                        Drop<String>(
+                        MultiDrop(
                           label: 'ร้านค้า',
-                          value: _shop,
-                          width: 180,
+                          selected: _shops,
+                          width: 200,
                           onChanged: (v) => setState(() {
-                            _shop = v ?? 'all';
+                            _shops = v;
                             _page = 1;
                           }),
-                          items: [
-                            const DropdownMenuItem(value: 'all', child: Text('ทุกร้าน')),
+                          options: [
+                            const CheckOption('all', 'ทุกร้าน'),
                             for (final s in ShopStore.instance.realShops)
-                              if (s.connected && s.apiShopId.isNotEmpty && (_ch == 'all' || s.channel.name == _ch))
-                                DropdownMenuItem(
-                                  value: '${s.channel.name}|${s.apiShopId}',
-                                  child: Text(s.displayName),
-                                ),
+                              if (s.connected && s.apiShopId.isNotEmpty && (_ch.isEmpty || _ch.contains(s.channel.name)))
+                                CheckOption('${s.channel.name}|${s.apiShopId}', s.displayName),
                           ],
                         ),
-                        Drop<String>(
+                        MultiDrop(
                           label: 'สถานะสินค้า',
-                          value: _st,
-                          width: 150,
+                          selected: _st,
+                          width: 168,
                           onChanged: (v) => setState(() {
-                            _st = v ?? 'all';
+                            _st = v;
                             _page = 1;
                           }),
-                          items: const [
-                            DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                            DropdownMenuItem(value: 'active', child: Text('พร้อมขาย')),
-                            DropdownMenuItem(value: 'inactive', child: Text('ปิดการขาย')),
-                            DropdownMenuItem(value: 'oos', child: Text('สินค้าหมด')),
+                          options: const [
+                            CheckOption('all', 'ทั้งหมด'),
+                            CheckOption('active', 'พร้อมขาย'),
+                            CheckOption('inactive', 'ปิดการขาย'),
+                            CheckOption('oos', 'สินค้าหมด'),
                           ],
                         ),
-                        Drop<String>(
+                        MultiDrop(
                           label: 'สถานะ Mapping',
-                          value: _map,
-                          width: 170,
+                          selected: _map,
+                          width: 188,
                           onChanged: (v) => setState(() {
-                            _map = v ?? 'all';
+                            _map = v;
                             _page = 1;
                           }),
-                          items: const [
-                            DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                            DropdownMenuItem(value: 'mapped', child: Text('จับคู่แล้ว')),
-                            DropdownMenuItem(value: 'partial', child: Text('จับคู่บางส่วน')),
-                            DropdownMenuItem(value: 'unmapped', child: Text('ยังไม่จับคู่')),
-                            DropdownMenuItem(value: 'noSku', child: Text('ไม่มี SKU')),
+                          options: const [
+                            CheckOption('all', 'ทั้งหมด'),
+                            CheckOption('mapped', 'จับคู่แล้ว'),
+                            CheckOption('partial', 'จับคู่บางส่วน'),
+                            CheckOption('unmapped', 'ยังไม่จับคู่'),
+                            CheckOption('noSku', 'ไม่มี SKU'),
                           ],
                         ),
                         SizedBox(
@@ -225,24 +240,33 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             controller: _search,
                             onChanged: _onQuery,
                             onSubmitted: (_) => _searchTap(),
+                            style: const TextStyle(fontSize: 13),
                             decoration: const InputDecoration(
                               hintText: 'ค้นหา SKU หรือชื่อสินค้า',
-                              prefixIcon: Icon(Icons.search, size: 20),
+                              hintStyle: TextStyle(fontSize: 12),
+                              prefixIcon: Icon(Icons.search, size: 16),
+                              prefixIconConstraints: BoxConstraints(minWidth: 32, minHeight: 32),
                               isDense: true,
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              contentPadding: EdgeInsets.fromLTRB(0, 8, 12, 8),
                             ),
                           ),
                         ),
                         SizedBox(
-                          height: 44,
+                          height: 36,
                           child: ElevatedButton.icon(
                             onPressed: busy ? null : _searchTap,
-                            icon: const Icon(Icons.search, size: 18),
-                            label: const Text('ค้นหา'),
+                            icon: const Icon(Icons.search, size: 16),
+                            label: const Text('ค้นหา', style: TextStyle(fontSize: 13)),
+                            style: ElevatedButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: const Size(0, 36),
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                            ),
                           ),
                         ),
                         SizedBox(
-                          height: 44,
+                          height: 36,
                           child: OutlinedButton.icon(
                             onPressed: busy ? null : _syncNow,
                             icon: syncStore.syncing
@@ -251,12 +275,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                     height: 16,
                                     child: CircularProgressIndicator(strokeWidth: 2),
                                   )
-                                : const Icon(Icons.sync_rounded, size: 18),
-                            label: Text(syncStore.syncing ? 'กำลัง Sync...' : 'Sync Now'),
+                                : const Icon(Icons.sync_rounded, size: 16),
+                            label: Text(syncStore.syncing ? 'กำลัง Sync...' : 'Sync Now', style: const TextStyle(fontSize: 13)),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Pal.text,
                               backgroundColor: Colors.white,
                               side: const BorderSide(color: Pal.line),
+                              shape: const StadiumBorder(),
+                              visualDensity: VisualDensity.compact,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: const Size(0, 36),
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
                             ),
                           ),
                         ),
@@ -278,6 +307,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             width: box.maxWidth,
                             child: FillTable(
                               minWidth: 1120,
+                              lazy: rows.isNotEmpty,
                               viewportWidth: box.maxWidth.isFinite ? box.maxWidth : null,
                               header: Column(
                                 children: [
@@ -285,16 +315,17 @@ class _ProductsScreenState extends State<ProductsScreen> {
                                   const Divider(height: 1),
                                 ],
                               ),
-                              child: Column(
-                                children: [
-                                  for (var i = 0; i < rows.length; i++) _ProductBlock(rows[i], start + i + 1),
-                                  if (rows.isEmpty && !busy)
-                                    const Padding(
-                                      padding: EdgeInsets.symmetric(vertical: 24),
-                                      child: Center(child: Text('ไม่พบสินค้า')),
+                              child: rows.isEmpty
+                                  ? Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 24),
+                                      child: Center(child: Text(busy ? '' : 'ไม่พบสินค้า')),
+                                    )
+                                  : ListView.builder(
+                                      primary: false,
+                                      padding: EdgeInsets.zero,
+                                      itemCount: rows.length,
+                                      itemBuilder: (context, i) => _ProductBlock(rows[i], start + i + 1),
                                     ),
-                                ],
-                              ),
                             ),
                           );
                         },

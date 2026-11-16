@@ -7,7 +7,12 @@ Widget pill(String text, Color fg, Color bg, {double size = 12}) {
   return Container(
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
     decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(99)),
-    child: Text(text, style: TextStyle(color: fg, fontSize: size, fontWeight: FontWeight.w600)),
+    child: Text(
+      text,
+      maxLines: 1,
+      softWrap: false,
+      style: TextStyle(color: fg, fontSize: size, fontWeight: FontWeight.w600),
+    ),
   );
 }
 
@@ -48,8 +53,9 @@ Widget orderSyncPill(String? raw) {
   if (v == 'delivery_fail') return pill('Delivery ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
   if (v == 'delivery_wait') return pill('รอสร้าง Delivery', const Color(0xFFB45309), Pal.warnBg);
   if (v == 'delivery_ok') return pill('สร้าง Delivery สำเร็จ', const Color(0xFF15803D), Pal.okBg);
-  if (v == 'invoice_fail') return pill('Invoice ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
-  if (v == 'invoice_wait') return pill('รอสร้าง Invoice', const Color(0xFFB45309), Pal.warnBg);
+  if (v == 'invoice_fail') return pill('A/R Invoice ล้มเหลว', const Color(0xFFB91C1C), Pal.errBg);
+  if (v == 'invoice_wait') return pill('รอสร้าง A/R Invoice', const Color(0xFFB45309), Pal.warnBg);
+  if (v == 'invoice_ok') return pill('สร้าง A/R Invoice สำเร็จ', const Color(0xFF15803D), Pal.okBg);
   if (v == 'cancelled' || v.contains('cancel')) return pill('ยกเลิก', const Color(0xFFB91C1C), Pal.errBg);
   if (v == 'ok' || v.contains('sap_ok') || v.contains('sapok')) {
     return pill('สำเร็จ', const Color(0xFF15803D), Pal.okBg);

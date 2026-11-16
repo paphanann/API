@@ -30,6 +30,7 @@ class StickyTable extends StatelessWidget {
     required this.headers,
     required this.rows,
     this.widths = const [],
+    this.aligns = const [],
     this.minWidth = 0,
     this.fill = true,
   });
@@ -37,6 +38,7 @@ class StickyTable extends StatelessWidget {
   final List<Widget> headers;
   final List<List<Widget>> rows;
   final List<TableColumnWidth> widths;
+  final List<Alignment> aligns;
   final double minWidth;
   final bool fill;
 
@@ -47,10 +49,12 @@ class StickyTable extends StatelessWidget {
       for (var i = 0; i < cols; i++) i: i < widths.length ? widths[i] : const FlexColumnWidth(),
     };
 
-    Widget pad(Widget child, {required bool head}) {
+    Alignment alignOf(int col) => col < aligns.length ? aligns[col] : Alignment.centerLeft;
+
+    Widget pad(Widget child, {required bool head, required int col}) {
       return Padding(
         padding: EdgeInsets.symmetric(horizontal: 8, vertical: head ? 10 : 8),
-        child: Align(alignment: Alignment.centerLeft, child: child),
+        child: Align(alignment: alignOf(col), child: child),
       );
     }
 
@@ -70,7 +74,7 @@ class StickyTable extends StatelessWidget {
       child: DefaultTextStyle.merge(
         style: tableHead,
         child: make([
-          TableRow(children: [for (final x in headers) pad(x, head: true)]),
+          TableRow(children: [for (var i = 0; i < headers.length; i++) pad(headers[i], head: true, col: i)]),
         ]),
       ),
     );
@@ -82,7 +86,7 @@ class StickyTable extends StatelessWidget {
             color: i.isOdd ? const Color(0xFFF8FAFC) : Colors.white,
             border: i == rows.length - 1 ? null : const Border(bottom: BorderSide(color: Pal.line)),
           ),
-          children: [for (final x in rows[i]) pad(x, head: false)],
+          children: [for (var c = 0; c < rows[i].length; c++) pad(rows[i][c], head: false, col: c)],
         ),
     ]);
 
@@ -115,12 +119,13 @@ class StickyTable extends StatelessWidget {
 
 /// ตารางเลื่อนข้างได้ — มีแถบเลื่อนล่าง และลากด้วยเมาส์ได้บนเว็บ
 class FillTable extends StatefulWidget {
-  const FillTable({super.key, required this.child, this.header, this.minWidth = 0, this.viewportWidth});
+  const FillTable({super.key, required this.child, this.header, this.minWidth = 0, this.viewportWidth, this.lazy = false});
 
   final Widget child;
   final Widget? header;
   final double minWidth;
   final double? viewportWidth;
+  final bool lazy;
 
   @override
   State<FillTable> createState() => _FillTableState();
@@ -171,10 +176,12 @@ class _FillTableState extends State<FillTable> {
                       children: [
                         widget.header!,
                         Expanded(
-                          child: ScrollConfiguration(
-                            behavior: ScrollConfiguration.of(context).copyWith(scrollbars: true),
-                            child: ClipRect(child: SingleChildScrollView(primary: false, child: widget.child)),
-                          ),
+                          child: widget.lazy
+                              ? widget.child
+                              : ScrollConfiguration(
+                                  behavior: ScrollConfiguration.of(context).copyWith(scrollbars: true),
+                                  child: ClipRect(child: SingleChildScrollView(primary: false, child: widget.child)),
+                                ),
                         ),
                       ],
                     ),

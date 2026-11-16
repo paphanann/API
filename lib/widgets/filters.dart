@@ -106,9 +106,9 @@ class DateRangeField extends StatelessWidget {
             child: InputDecorator(
               decoration: const InputDecoration(
                 isDense: true,
-                prefixIcon: Icon(Icons.calendar_today_outlined, size: 18),
-                prefixIconConstraints: BoxConstraints(minWidth: 40, minHeight: 40),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                prefixIcon: Icon(Icons.calendar_today_outlined, size: 16),
+                prefixIconConstraints: BoxConstraints(minWidth: 32, minHeight: 32),
+                contentPadding: EdgeInsets.fromLTRB(8, 8, 12, 8),
               ),
               child: Text(
                 !has
@@ -169,6 +169,139 @@ class Drop<T> extends StatelessWidget {
               isDense: true,
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CheckOption {
+  const CheckOption(this.value, this.label);
+
+  final String value;
+  final String label;
+}
+
+/// เมนูช่องติ๊กที่เลือกได้หลายรายการ เมนูไม่ปิดตอนกดติ๊ก
+class MultiDrop extends StatelessWidget {
+  const MultiDrop({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.options,
+    required this.onChanged,
+    this.width = 180,
+    this.allValue = 'all',
+  });
+
+  final String label;
+  final Set<String> selected;
+  final List<CheckOption> options;
+  final ValueChanged<Set<String>> onChanged;
+  final double width;
+  final String allValue;
+
+  String get _summary {
+    final picked = [
+      for (final option in options)
+        if (option.value != allValue && selected.contains(option.value)) option.label,
+    ];
+    if (picked.isEmpty) {
+      for (final option in options) {
+        if (option.value == allValue) return option.label;
+      }
+      return 'ทั้งหมด';
+    }
+    return picked.join(', ');
+  }
+
+  bool _on(CheckOption option) => option.value == allValue ? selected.isEmpty : selected.contains(option.value);
+
+  void _toggle(CheckOption option) {
+    if (option.value == allValue) {
+      onChanged({});
+      return;
+    }
+    final next = {...selected};
+    if (!next.add(option.value)) next.remove(option.value);
+    onChanged(next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Pal.muted, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 6),
+          MenuAnchor(
+            crossAxisUnconstrained: false,
+            alignmentOffset: const Offset(0, 4),
+            style: MenuStyle(
+              backgroundColor: const WidgetStatePropertyAll(Colors.white),
+              surfaceTintColor: const WidgetStatePropertyAll(Colors.white),
+              elevation: const WidgetStatePropertyAll(8),
+              shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+              minimumSize: WidgetStatePropertyAll(Size(width, 0)),
+              maximumSize: WidgetStatePropertyAll(Size(width, 320)),
+              padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 4)),
+            ),
+            menuChildren: [
+              for (final option in options)
+                MenuItemButton(
+                  closeOnActivate: false,
+                  style: ButtonStyle(
+                    padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 12, vertical: 4)),
+                    minimumSize: WidgetStatePropertyAll(Size(width, 36)),
+                    overlayColor: WidgetStatePropertyAll(Pal.primary.withValues(alpha: 0.06)),
+                  ),
+                  onPressed: () => _toggle(option),
+                  child: Row(
+                    children: [
+                      IgnorePointer(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: Checkbox(
+                            value: _on(option),
+                            onChanged: (_) {},
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            visualDensity: VisualDensity.compact,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          option.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 14, color: Pal.text),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+            builder: (context, controller, child) {
+              return InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => controller.isOpen ? controller.close() : controller.open(),
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.fromLTRB(12, 10, 0, 10),
+                    suffixIcon: Icon(controller.isOpen ? Icons.arrow_drop_up : Icons.arrow_drop_down, color: Pal.muted),
+                    suffixIconConstraints: const BoxConstraints(minWidth: 32, minHeight: 24),
+                  ),
+                  child: Text(_summary, maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+              );
+            },
           ),
         ],
       ),

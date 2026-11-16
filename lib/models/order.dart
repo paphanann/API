@@ -95,7 +95,20 @@ class Order {
         }(),
         sapUi: pickStr(m, ['SapUi', 'sapUi'], or: ''),
         invoiceDocNum: () {
-          final v = pickStr(m, ['InvoiceDocNum', 'invoiceDocNum'], or: '');
+          final v = pickStr(m, [
+            'InvoiceDocNum',
+            'invoiceDocNum',
+            'InvoiceNum',
+            'invoiceNum',
+            'InvoiceNo',
+            'invoiceNo',
+            'ArInvoiceDocNum',
+            'arInvoiceDocNum',
+            'ARInvoice',
+            'ArInvoice',
+            'SapInvoiceDocNum',
+            'sapInvoiceDocNum',
+          ], or: '');
           return v.isEmpty ? null : v;
         }(),
         invoiceStatus: pickStr(m, ['InvoiceStatus', 'invoiceStatus'], or: ''),
@@ -226,7 +239,20 @@ class Order {
       }(),
       sapUi: pickStr(m, ['SapUi', 'sapUi'], or: ''),
       invoiceDocNum: () {
-        final v = pickStr(m, ['InvoiceDocNum', 'invoiceDocNum'], or: '');
+        final v = pickStr(m, [
+          'InvoiceDocNum',
+          'invoiceDocNum',
+          'InvoiceNum',
+          'invoiceNum',
+          'InvoiceNo',
+          'invoiceNo',
+          'ArInvoiceDocNum',
+          'arInvoiceDocNum',
+          'ARInvoice',
+          'ArInvoice',
+          'SapInvoiceDocNum',
+          'sapInvoiceDocNum',
+        ], or: '');
         return v.isEmpty ? null : v;
       }(),
       invoiceStatus: pickStr(m, ['InvoiceStatus', 'invoiceStatus'], or: ''),
@@ -269,6 +295,13 @@ class Order {
   final int itemCount;
   final String transferStatus;
   final String transferDocNum;
+
+  bool get hasSoDoc => (sapDocNum ?? '').trim().isNotEmpty;
+  bool get hasDeliveryDoc => (deliveryDocNum ?? '').trim().isNotEmpty;
+  bool get hasInvoiceDoc => (invoiceDocNum ?? '').trim().isNotEmpty;
+
+  /// SHIPPED / IN_TRANSIT / shipped = Delivery + A/R Invoice
+  bool get isShipped => status == OrderStatus.shipping || status == OrderStatus.success;
 
   double get lineSum {
     var sum = 0.0;
@@ -547,7 +580,12 @@ OrderStatus _orderStatus(String raw) {
   }
   if (v.contains('cancel') || v.contains('void')) return OrderStatus.cancelled;
   if (v == 'unpaid' || v.contains('unpaid') || v.contains('รอชำระ')) return OrderStatus.unpaid;
-  if (v == 'shipping' || v == 'shipped' || v == 'in_transit' || v == 'to_confirm_receive' || v == 'partially_shipping' || v.contains('กำลังจัดส่ง')) {
+  if (v.contains('in_transit') ||
+      v.contains('shipped') ||
+      v == 'shipping' ||
+      v == 'to_confirm_receive' ||
+      v.contains('partially_shipping') ||
+      v.contains('กำลังจัดส่ง')) {
     return OrderStatus.shipping;
   }
   if (v == 'success' || v == 'completed' || v == 'complete' || v == 'delivered' || v == 'confirmed' || v.contains('สำเร็จ')) {

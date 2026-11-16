@@ -29,8 +29,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   DateTime? _from = DateTime(2026, 10, 1);
   DateTime? _to;
-  String _ch = 'all';
-  String _shop = 'all';
+  Set<String> _ch = {};
+  Set<String> _shops = {};
   bool _sapOn = false;
   int _recentPage = 1;
   static const _recentSize = 20;
@@ -103,19 +103,42 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String? get _platformQuery {
-    if (_ch != 'all') return Channel.values.byName(_ch).apiPlatform;
-    if (_shop == 'all') return null;
-    final name = _shop.split('|').first;
-    final channel = Channel.values.where((c) => c.name == name);
-    return channel.isEmpty ? null : channel.first.apiPlatform;
+    final names = {..._ch};
+    if (names.isEmpty) {
+      for (final shop in _shops) {
+        final cut = shop.indexOf('|');
+        if (cut > 0) names.add(shop.substring(0, cut));
+      }
+    }
+    if (names.isEmpty) return null;
+    return names.map((name) => Channel.values.byName(name).apiPlatform).join(',');
   }
 
   String? get _shopQuery {
-    if (_shop == 'all') return null;
-    final cut = _shop.indexOf('|');
-    final id = cut >= 0 ? _shop.substring(cut + 1) : _shop;
-    if (id.isEmpty || id == '-') return null;
-    return id;
+    if (_shops.isEmpty) return null;
+    final ids = [
+      for (final value in _shops)
+        if (value.contains('|')) value.substring(value.indexOf('|') + 1) else value,
+    ].where((id) => id.isNotEmpty && id != '-').toList();
+    if (ids.isEmpty) return null;
+    return ids.join(',');
+  }
+
+  void _setPlatforms(Set<String> next) {
+    final shops = {..._shops};
+    if (next.isNotEmpty) {
+      shops.removeWhere((value) {
+        final cut = value.indexOf('|');
+        final channel = cut >= 0 ? value.substring(0, cut) : '';
+        return channel.isNotEmpty && !next.contains(channel);
+      });
+    }
+    setState(() {
+      _ch = next;
+      _shops = shops;
+      _recentPage = 1;
+    });
+    _reload();
   }
 
   int _transferCount() {
@@ -126,9 +149,9 @@ class _HomeScreenState extends State<HomeScreen> {
         if (at == null) continue;
         if (!inDayRange(at, _from, _to)) continue;
       }
-      if (_ch != 'all') {
+      if (_ch.isNotEmpty) {
         final ch = ChannelX.fromApi(t.platform);
-        if (ch == null || ch.name != _ch) continue;
+        if (ch == null || !_ch.contains(ch.name)) continue;
       }
       n++;
     }
@@ -175,7 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, _) {
         final dash = DashStore.instance;
         final shops = ShopStore.instance.shops;
-        final scopedShops = _ch == 'all' ? shops : shops.where((s) => s.channel.name == _ch).toList();
+        final scopedShops = _ch.isEmpty ? shops : shops.where((s) => _ch.contains(s.channel.name)).toList();
         final d = dash.data;
         final liveChannels = {
           for (final s in scopedShops)
@@ -212,43 +235,33 @@ class _HomeScreenState extends State<HomeScreen> {
                   final filters = [
                     DateRangeField(from: _from, to: _to, onTap: _pickRange),
                     PeriodField(value: periodOfRange(_from, _to), onChanged: _applyPeriod),
-                    Drop<String>(
+                    MultiDrop(
                       label: 'แพลตฟอร์ม',
-                      value: _ch,
-                      width: 160,
-                      items: [
-                        const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                        for (final c in Channel.values) DropdownMenuItem(value: c.name, child: Text(c.shortLabel)),
+                      selected: _ch,
+                      width: 168,
+                      onChanged: _setPlatforms,
+                      options: [
+                        const CheckOption('all', 'ทั้งหมด'),
+                        for (final c in Channel.values) CheckOption(c.name, c.shortLabel),
                       ],
-                      onChanged: (v) {
-                        setState(() {
-                          _ch = v ?? 'all';
-                          _shop = 'all';
-                          _recentPage = 1;
-                        });
-                        _reload();
-                      },
                     ),
-                    Drop<String>(
+                    MultiDrop(
                       label: 'ร้านค้า',
-                      value: _shop,
-                      width: 180,
-                      items: [
-                        const DropdownMenuItem(value: 'all', child: Text('ทุกร้าน')),
-                        for (final s in ShopStore.instance.realShops)
-                          if (s.connected && s.apiShopId.isNotEmpty && (_ch == 'all' || s.channel.name == _ch))
-                            DropdownMenuItem(
-                              value: '${s.channel.name}|${s.apiShopId}',
-                              child: Text(s.displayName),
-                            ),
-                      ],
+                      selected: _shops,
+                      width: 200,
                       onChanged: (v) {
                         setState(() {
-                          _shop = v ?? 'all';
+                          _shops = v;
                           _recentPage = 1;
                         });
                         _reload();
                       },
+                      options: [
+                        const CheckOption('all', 'ทุกร้าน'),
+                        for (final s in ShopStore.instance.realShops)
+                          if (s.connected && s.apiShopId.isNotEmpty && (_ch.isEmpty || _ch.contains(s.channel.name)))
+                            CheckOption('${s.channel.name}|${s.apiShopId}', s.displayName),
+                      ],
                     ),
                   ];
                   final sync = HeaderSyncActions(
@@ -444,6 +457,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       pad: const EdgeInsets.fromLTRB(12, 10, 12, 12),
       child: _RecentOrders(
+        expand: fill,
         orders: _recentPage == 1 ? d.recent : _recent,
         total: _recentPage == 1 ? d.totalOrders : _recentTotal,
         page: _recentPage,
@@ -471,9 +485,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
 bool _skipped(Order o) => o.status == OrderStatus.cancelled || o.status == OrderStatus.returned;
 
-bool _hasSo(Order o) => o.sapDocNum != null && o.sapDocNum!.trim().isNotEmpty;
+bool _hasSo(Order o) => o.hasSoDoc;
 
-bool _hasDelivery(Order o) => (o.deliveryDocNum ?? '').trim().isNotEmpty;
+bool _hasDelivery(Order o) => o.hasDeliveryDoc;
 
 class _ConnList extends StatelessWidget {
   const _ConnList({required this.shops, required this.sapOn});
@@ -566,6 +580,7 @@ class _ConnList extends StatelessWidget {
 
 class _RecentOrders extends StatelessWidget {
   const _RecentOrders({
+    required this.expand,
     required this.orders,
     required this.total,
     required this.page,
@@ -574,6 +589,7 @@ class _RecentOrders extends StatelessWidget {
     required this.onPage,
   });
 
+  final bool expand;
   final List<Order> orders;
   final int total;
   final int page;
@@ -662,27 +678,23 @@ class _RecentOrders extends StatelessWidget {
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, box) {
-        if (!box.maxHeight.isFinite) {
-          return Column(mainAxisSize: MainAxisSize.min, children: [frame(Column(children: [head, body])), footer]);
-        }
-        return Column(
-          children: [
-            Expanded(
-              child: frame(
-                Column(
-                  children: [
-                    head,
-                    Expanded(child: VScrollPane(child: body)),
-                  ],
-                ),
-              ),
+    if (!expand) {
+      return Column(mainAxisSize: MainAxisSize.min, children: [frame(Column(children: [head, body])), footer]);
+    }
+    return Column(
+      children: [
+        Expanded(
+          child: frame(
+            Column(
+              children: [
+                head,
+                Expanded(child: VScrollPane(child: body)),
+              ],
             ),
-            footer,
-          ],
-        );
-      },
+          ),
+        ),
+        footer,
+      ],
     );
   }
 
@@ -1007,13 +1019,22 @@ class _BarPainter extends CustomPainter {
       old.labels != labels || old.series != series || old.maxY != maxY || old.hover != hover;
 }
 
-class _Share extends StatelessWidget {
+class _Share extends StatefulWidget {
   const _Share(this.d);
 
   final DashData d;
 
   @override
+  State<_Share> createState() => _ShareState();
+}
+
+class _ShareState extends State<_Share> {
+  int? _hover;
+  Offset? _cursor;
+
+  @override
   Widget build(BuildContext context) {
+    final d = widget.d;
     final slices = <(double, Color, String, int)>[
       (d.shopeeShare, Pal.shopee, 'Shopee', _countFromShare(d.totalOrders, d.shopeeShare)),
       (d.tiktokShare, Pal.tiktok, 'TikTok Shop', _countFromShare(d.totalOrders, d.tiktokShare)),
@@ -1031,21 +1052,37 @@ class _Share extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              SizedBox(
-                width: size,
-                height: size,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CustomPaint(size: Size(size, size), painter: _PiePainter(slices)),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(nFmt.format(d.totalOrders), style: TextStyle(fontSize: size >= 150 ? 20 : 18, fontWeight: FontWeight.w800)),
-                        const Text('รายการ', style: TextStyle(color: Pal.muted, fontSize: 11)),
-                      ],
-                    ),
-                  ],
+              MouseRegion(
+                onHover: (e) {
+                  final i = _pieHitIndex(e.localPosition, size, slices);
+                  setState(() {
+                    _hover = i;
+                    _cursor = e.localPosition;
+                  });
+                },
+                onExit: (_) => setState(() {
+                  _hover = null;
+                  _cursor = null;
+                }),
+                child: SizedBox(
+                  width: size,
+                  height: size,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      CustomPaint(size: Size(size, size), painter: _PiePainter(slices, hover: _hover)),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(nFmt.format(d.totalOrders), style: TextStyle(fontSize: size >= 150 ? 20 : 18, fontWeight: FontWeight.w800)),
+                          const Text('รายการ', style: TextStyle(color: Pal.muted, fontSize: 11)),
+                        ],
+                      ),
+                      if (_hover != null && _cursor != null)
+                        _PieTip(cursor: _cursor!, size: Size(size, size), slice: slices[_hover!]),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 20),
@@ -1055,7 +1092,20 @@ class _Share extends StatelessWidget {
                 children: [
                   for (var i = 0; i < slices.length; i++) ...[
                     if (i > 0) const SizedBox(height: 6),
-                    _Dot(color: slices[i].$2, text: '${slices[i].$3} ${slices[i].$1.toStringAsFixed(0)}% (${nFmt.format(slices[i].$4)})'),
+                    MouseRegion(
+                      onEnter: (_) => setState(() {
+                        _hover = i;
+                        _cursor = null;
+                      }),
+                      onExit: (_) => setState(() {
+                        if (_hover == i) _hover = null;
+                      }),
+                      child: _Dot(
+                        color: slices[i].$2,
+                        text: '${slices[i].$3} ${slices[i].$1.toStringAsFixed(0)}% (${nFmt.format(slices[i].$4)})',
+                        active: _hover == i,
+                      ),
+                    ),
                   ],
                 ],
               ),
@@ -1072,10 +1122,89 @@ int _countFromShare(int total, double share) {
   return (total * share / 100).round();
 }
 
+int? _pieHitIndex(Offset pos, double size, List<(double, Color, String, int)> slices) {
+  final center = Offset(size / 2, size / 2);
+  final r = size / 2;
+  final inner = r * 0.58;
+  final dx = pos.dx - center.dx;
+  final dy = pos.dy - center.dy;
+  final dist = math.sqrt(dx * dx + dy * dy);
+  if (dist < inner || dist > r) return null;
+  var a = math.atan2(dy, dx) + math.pi / 2;
+  if (a < 0) a += 2 * math.pi;
+  final total = slices.fold<double>(0, (s, e) => s + e.$1);
+  if (!total.isFinite || total <= 0) return null;
+  var acc = 0.0;
+  for (var i = 0; i < slices.length; i++) {
+    final sweep = (slices[i].$1 / total) * 2 * math.pi;
+    if (a >= acc && a < acc + sweep) return i;
+    acc += sweep;
+  }
+  return slices.length - 1;
+}
+
+class _PieTip extends StatelessWidget {
+  const _PieTip({required this.cursor, required this.size, required this.slice});
+
+  final Offset cursor;
+  final Size size;
+  final (double, Color, String, int) slice;
+
+  @override
+  Widget build(BuildContext context) {
+    const tipW = 168.0;
+    var left = cursor.dx + 14;
+    var top = cursor.dy - 52;
+    if (left + tipW > size.width) left = cursor.dx - tipW - 10;
+    if (left < -80) left = cursor.dx + 14;
+    if (top < -8) top = cursor.dy + 16;
+    return Positioned(
+      left: left,
+      top: top,
+      child: IgnorePointer(
+        child: Material(
+          color: Colors.white,
+          elevation: 10,
+          shadowColor: const Color(0x33000000),
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 14, 8),
+            child: SizedBox(
+              width: 142,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(width: 8, height: 8, decoration: BoxDecoration(color: slice.$2, shape: BoxShape.circle)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(slice.$3, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700))),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Text('${slice.$1.toStringAsFixed(0)}%', style: const TextStyle(fontSize: 12, color: Pal.muted)),
+                      const Spacer(),
+                      Text('${nFmt.format(slice.$4)} รายการ', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PiePainter extends CustomPainter {
-  _PiePainter(this.slices);
+  _PiePainter(this.slices, {this.hover});
 
   final List<(double, Color, String, int)> slices;
+  final int? hover;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1086,9 +1215,11 @@ class _PiePainter extends CustomPainter {
     if (!total.isFinite || total <= 0) return;
 
     var start = -math.pi / 2;
-    final rect = Rect.fromCircle(center: center, radius: r);
-    for (final s in slices) {
+    for (var i = 0; i < slices.length; i++) {
+      final s = slices[i];
       final sweep = (s.$1 / total) * 2 * math.pi;
+      final on = hover == i;
+      final rect = Rect.fromCircle(center: center, radius: on ? r : r * 0.98);
       canvas.drawArc(rect, start, sweep - 0.02, true, Paint()..color = s.$2);
       start += sweep;
     }
@@ -1117,14 +1248,15 @@ class _PiePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _PiePainter old) => old.slices != slices;
+  bool shouldRepaint(covariant _PiePainter old) => old.slices != slices || old.hover != hover;
 }
 
 class _Dot extends StatelessWidget {
-  const _Dot({required this.color, required this.text});
+  const _Dot({required this.color, required this.text, this.active = false});
 
   final Color color;
   final String text;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
@@ -1133,7 +1265,7 @@ class _Dot extends StatelessWidget {
       children: [
         Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 8),
-        Flexible(child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500))),
+        Flexible(child: Text(text, style: TextStyle(fontSize: 12, fontWeight: active ? FontWeight.w800 : FontWeight.w500))),
       ],
     );
   }

@@ -240,14 +240,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _erpOk = result.message;
       _erpChecked = DateTime.now();
       final seen = <String>{};
-      final dbs = <SapDatabase>[
-        for (final d in [...result.databases, ..._sapDbs])
-          if (seen.add(d.name)) d,
+      _sapDbs = [
+        for (final d in result.databases)
+          if (d.name.trim().isNotEmpty && seen.add(d.name.trim())) d,
       ];
-      if (_database.text.trim().isNotEmpty && !seen.contains(_database.text.trim())) {
-        dbs.insert(0, SapDatabase(name: _database.text.trim()));
-      }
-      _sapDbs = dbs;
       _dbQuery = '';
       if (stay) {
         if (mounted) {
@@ -277,14 +273,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _warehouses = opts.warehouses;
         _branches = opts.branches;
         _taxCodes = opts.taxCodes;
-        if (opts.databases.isNotEmpty) {
-          final seen = {for (final d in _sapDbs) d.name};
-          _sapDbs = [
-            ..._sapDbs,
-            for (final d in opts.databases)
-              if (seen.add(d.name)) d,
-          ];
-        }
       });
     } catch (_) {}
   }

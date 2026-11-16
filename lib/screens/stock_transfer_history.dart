@@ -58,8 +58,8 @@ class StockTransferHistoryScreen extends StatefulWidget {
 
 class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen> {
   int _tab = 0;
-  String _platform = 'all';
-  String _st = 'all';
+  Set<String> _platform = {};
+  Set<String> _st = {};
   DateTime? _fromDate;
   DateTime? _toDate;
   final _search = TextEditingController();
@@ -122,28 +122,12 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     }
   }
 
-  void _applyPeriod(DatePeriod period) {
-    if (period == DatePeriod.custom) {
-      _pickRange().whenComplete(() {
-        if (mounted) setState(() {});
-      });
-      return;
-    }
-    final range = rangeOfPeriod(period);
-    setState(() {
-      _fromDate = range.$1;
-      _toDate = range.$2;
-      _page = 1;
-      _histPage = 1;
-    });
-    _reloadSo();
-  }
-
   Future<void> _reloadSo() async {
     final req = ++_soReq;
     final q = _search.text.trim();
-    final platform = _platform == 'all' ? null : Channel.values.byName(_platform).apiPlatform;
+    final platform = _platform.isEmpty ? null : _platform.map((name) => Channel.values.byName(name).apiPlatform).join(',');
     const kinds = {'ready', 'sent', 'done', 'fail'};
+    final transferStatus = _st.where(kinds.contains).toList();
     if (mounted) {
       setState(() {
         _soLoading = true;
@@ -154,7 +138,7 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
       final page = await Api.getOrdersPage(
         platform: platform,
         q: q,
-        tr: kinds.contains(_st) ? _st : null,
+        tr: transferStatus.isEmpty ? null : transferStatus.join(','),
         wide: q.isNotEmpty,
         links: true,
         from: q.isNotEmpty ? null : _fromDate,
@@ -206,8 +190,8 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
   void _clearFilters() {
     final today = dateOnly(DateTime.now());
     setState(() {
-      _platform = 'all';
-      _st = 'all';
+      _platform = {};
+      _st = {};
       _search.clear();
       _toDate = today;
       _fromDate = today.subtract(const Duration(days: 30));
@@ -291,8 +275,10 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     final q = _search.text.trim().toLowerCase();
     final list = [
       for (final t in TransferStore.instance.rows)
-        if ((_platform == 'all' || t.platform == _platform || ChannelX.fromApi(t.platform)?.name == _platform) &&
-            (_st == 'all' || t.status.toLowerCase().contains(_st)) &&
+        if ((_platform.isEmpty ||
+                _platform.contains(t.platform) ||
+                _platform.contains(ChannelX.fromApi(t.platform)?.name)) &&
+            (_st.isEmpty || _st.any((status) => t.status.toLowerCase().contains(status))) &&
             (q.isNotEmpty ||
                 _fromDate == null ||
                 _toDate == null ||
@@ -795,7 +781,13 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
     Widget tab(String label, int i, IconData icon) {
       final on = _tab == i;
       return InkWell(
-        onTap: () => setState(() => _tab = i),
+        onTap: () {
+          if (_tab == i) return;
+          setState(() {
+            _tab = i;
+            _st = {};
+          });
+        },
         borderRadius: BorderRadius.circular(10),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -850,49 +842,48 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
         crossAxisAlignment: WrapCrossAlignment.end,
         children: [
           DateRangeField(from: _fromDate, to: _toDate, onTap: _pickRange, width: 280),
-          PeriodField(value: periodOfRange(_fromDate, _toDate), onChanged: _applyPeriod),
-          Drop<String>(
+          MultiDrop(
             label: 'Platform',
-            value: _platform,
-            width: 132,
+            selected: _platform,
+            width: 168,
             onChanged: (v) {
               setState(() {
-                _platform = v ?? 'all';
+                _platform = v;
                 _page = 1;
                 _histPage = 1;
               });
               _reloadSo();
             },
-            items: [
-              const DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-              ...Channel.values.map((c) => DropdownMenuItem(value: c.name, child: Text(c.label))),
+            options: [
+              const CheckOption('all', 'ทั้งหมด'),
+              for (final c in Channel.values) CheckOption(c.name, c.label),
             ],
           ),
-          Drop<String>(
+          MultiDrop(
             label: 'สถานะ',
-            value: _st,
-            width: 140,
+            selected: _st,
+            width: 168,
             onChanged: (v) {
               setState(() {
-                _st = v ?? 'all';
+                _st = v;
                 _page = 1;
                 _histPage = 1;
               });
               _reloadSo();
             },
-            items: _tab == 0
+            options: _tab == 0
                 ? const [
-                    DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                    DropdownMenuItem(value: 'ready', child: Text('พร้อมสร้าง')),
-                    DropdownMenuItem(value: 'sent', child: Text('ส่ง SAP')),
-                    DropdownMenuItem(value: 'done', child: Text('สำเร็จ')),
-                    DropdownMenuItem(value: 'fail', child: Text('ผิดพลาด')),
+                    CheckOption('all', 'ทั้งหมด'),
+                    CheckOption('ready', 'พร้อมสร้าง'),
+                    CheckOption('sent', 'ส่ง SAP'),
+                    CheckOption('done', 'สำเร็จ'),
+                    CheckOption('fail', 'ผิดพลาด'),
                   ]
                 : const [
-                    DropdownMenuItem(value: 'all', child: Text('ทั้งหมด')),
-                    DropdownMenuItem(value: 'success', child: Text('สำเร็จ')),
-                    DropdownMenuItem(value: 'pending', child: Text('รอดำเนินการ')),
-                    DropdownMenuItem(value: 'failed', child: Text('ล้มเหลว')),
+                    CheckOption('all', 'ทั้งหมด'),
+                    CheckOption('success', 'สำเร็จ'),
+                    CheckOption('pending', 'รอดำเนินการ'),
+                    CheckOption('failed', 'ล้มเหลว'),
                   ],
           ),
           SizedBox(
@@ -923,8 +914,9 @@ class _StockTransferHistoryScreenState extends State<StockTransferHistoryScreen>
                 hintText: 'ค้นหาเลขที่ SO / ลูกค้า / Reference No.',
                 hintStyle: TextStyle(fontSize: 12),
                 prefixIcon: Icon(Icons.search, size: 16),
+                prefixIconConstraints: BoxConstraints(minWidth: 32, minHeight: 32),
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                contentPadding: EdgeInsets.fromLTRB(0, 8, 12, 8),
               ),
             ),
           ),

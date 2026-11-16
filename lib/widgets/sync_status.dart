@@ -134,19 +134,22 @@ class LastSyncButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 40,
+      height: 36,
       child: OutlinedButton.icon(
         onPressed: syncing ? null : onSync,
         icon: syncing
             ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-            : const Icon(Icons.sync_rounded, size: 18),
-        label: Text(syncing ? 'กำลัง Sync...' : 'Sync Now'),
+            : const Icon(Icons.sync_rounded, size: 16),
+        label: Text(syncing ? 'กำลัง Sync...' : 'Sync Now', style: const TextStyle(fontSize: 13)),
         style: OutlinedButton.styleFrom(
           foregroundColor: Pal.text,
           backgroundColor: Colors.white,
           side: const BorderSide(color: Pal.line),
           shape: const StadiumBorder(),
-          padding: const EdgeInsets.symmetric(horizontal: 18),
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
         ),
       ),
     );
