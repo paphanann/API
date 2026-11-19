@@ -26,15 +26,21 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
   DateTime? _to;
 
   @override
-  void initState() {
-    super.initState();
-    final today = dateOnly(DateTime.now());
-    _to = today;
-    _from = today.subtract(const Duration(days: 7));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) SyncLogStore.instance.load();
-    });
-  }
+ void initState() {
+  super.initState();
+  final today = dateOnly(DateTime.now());
+  _to = today;
+  _from = today.subtract(const Duration(days: 7));
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted) {
+      SyncLogStore.instance.load(
+        from: _from,
+        to: _to,
+      );
+    }
+  });
+} //
 
   List<SyncRow> _rows() {
     return SyncLogStore.instance.logs.where((l) {
@@ -173,7 +179,10 @@ class _SyncLogScreenState extends State<SyncLogScreen> {
                             ? null
                             : () {
                                 setState(() => _page = 1);
-                                SyncLogStore.instance.load();
+                                SyncLogStore.instance.load(
+  from: _from,
+  to: _to,
+);
                               },
                         icon: const Icon(Icons.search, size: 18),
                         label: const Text('ค้นหา'),

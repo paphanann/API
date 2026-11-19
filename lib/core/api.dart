@@ -35,9 +35,7 @@ class Api {
     try {
       return await req;
     } catch (_) {
-      throw ApiException(
-        'เชื่อมต่อ Backend ไม่ได้ ที่ $apiUrl',
-      );
+      throw ApiException('เชื่อมต่อ Backend ไม่ได้ ที่ $apiUrl');
     }
   }
 
@@ -45,9 +43,17 @@ class Api {
     try {
       final decoded = jsonDecode(res.body);
       if (decoded is Map) {
-        for (final key in ['message', 'Message', 'error', 'Error', 'detail', 'Detail']) {
+        for (final key in [
+          'message',
+          'Message',
+          'error',
+          'Error',
+          'detail',
+          'Detail',
+        ]) {
           final v = decoded[key];
-          if (v != null && v.toString().trim().isNotEmpty) return v.toString().trim();
+          if (v != null && v.toString().trim().isNotEmpty)
+            return v.toString().trim();
         }
       }
     } catch (_) {}
@@ -69,11 +75,36 @@ class Api {
   static List<dynamic> _list(dynamic json) {
     if (json is List) return json;
     if (json is Map) {
-      for (final key in ['data', 'connections', 'orders', 'logs', 'items', 'result', 'products', 'inventory', 'stocks', 'warehouses', 'transfers', 'stockTransfers', 'rows', 'value', 'list', 'users', 'accounts']) {
+      for (final key in [
+        'data',
+        'connections',
+        'orders',
+        'logs',
+        'items',
+        'result',
+        'products',
+        'inventory',
+        'stocks',
+        'warehouses',
+        'transfers',
+        'stockTransfers',
+        'rows',
+        'value',
+        'list',
+        'users',
+        'accounts',
+      ]) {
         final v = json[key];
         if (v is List) return v;
         if (v is Map) {
-          for (final innerKey in ['data', 'items', 'products', 'rows', 'list', 'result']) {
+          for (final innerKey in [
+            'data',
+            'items',
+            'products',
+            'rows',
+            'list',
+            'result',
+          ]) {
             final inner = v[innerKey];
             if (inner is List) return inner;
           }
@@ -88,10 +119,33 @@ class Api {
     await _json(res);
   }
 
-  static Future<List<SyncRow>> getSyncLogs() async {
-    final res = await _send(http.get(_u('/api/sync/logs'), headers: _headers()));
+  static Future<List<SyncRow>> getSyncLogs({
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final query = <String, String>{};
+
+    String day(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+
+    if (from != null) query['from'] = day(from);
+    if (to != null) query['to'] = day(to);
+
+    final res = await _send(
+      http.get(
+        _u('/api/sync/logs', query.isEmpty ? null : query),
+        headers: _headers(),
+      ),
+    );
+
     final rows = _list(await _json(res));
-    return [for (final row in rows) if (row is Map) SyncRow.fromApi(Map<String, dynamic>.from(row))];
+
+    return [
+      for (final row in rows)
+        if (row is Map) SyncRow.fromApi(Map<String, dynamic>.from(row)),
+    ];
   }
 
   static Future<DashData> getDashboard({
@@ -102,20 +156,34 @@ class Api {
   }) async {
     final query = <String, String>{};
     if (platform != null && platform.isNotEmpty) query['platform'] = platform;
-    if (shopId != null && shopId.isNotEmpty && shopId != '-') query['shopId'] = shopId;
+    if (shopId != null && shopId.isNotEmpty && shopId != '-')
+      query['shopId'] = shopId;
     if (from != null && to != null) {
       String day(DateTime d) =>
           '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
       query['from'] = day(from);
       query['to'] = day(to);
     }
-    final res = await _send(http.get(_u('/api/dashboard', query.isEmpty ? null : query), headers: _headers()));
+    final res = await _send(
+      http.get(
+        _u('/api/dashboard', query.isEmpty ? null : query),
+        headers: _headers(),
+      ),
+    );
     if (res.statusCode == 404) return DashData.empty();
     final data = await _json(res);
     if (data is Map) {
       final map = Map<String, dynamic>.from(data);
-      final nested = pick(map, ['data', 'Data', 'result', 'Result', 'dashboard', 'Dashboard']);
-      if (nested is Map) return DashData.fromApi(Map<String, dynamic>.from(nested));
+      final nested = pick(map, [
+        'data',
+        'Data',
+        'result',
+        'Result',
+        'dashboard',
+        'Dashboard',
+      ]);
+      if (nested is Map)
+        return DashData.fromApi(Map<String, dynamic>.from(nested));
       return DashData.fromApi(map);
     }
     return DashData.empty();
@@ -138,15 +206,24 @@ class Api {
     );
   }
 
-  static Future<List<StockRow>> getInventory({String? warehouse, String? platform}) async {
+  static Future<List<StockRow>> getInventory({
+    String? warehouse,
+    String? platform,
+  }) async {
     final query = <String, String>{};
-    if (warehouse != null && warehouse.isNotEmpty) query['warehouse'] = warehouse;
+    if (warehouse != null && warehouse.isNotEmpty)
+      query['warehouse'] = warehouse;
     if (platform != null && platform.isNotEmpty) query['platform'] = platform;
     final q = query.isEmpty ? null : query;
 
-    final res = await _send(http.get(_u('/api/inventory', q), headers: _headers()));
+    final res = await _send(
+      http.get(_u('/api/inventory', q), headers: _headers()),
+    );
     final rows = _list(await _json(res));
-    return [for (final row in rows) if (row is Map) StockRow.fromApi(Map<String, dynamic>.from(row))];
+    return [
+      for (final row in rows)
+        if (row is Map) StockRow.fromApi(Map<String, dynamic>.from(row)),
+    ];
   }
 
   static Future<void> saveWarehouseMap({
@@ -158,12 +235,20 @@ class Api {
     final body = jsonEncode({
       'sapWhsCode': sapWhsCode,
       if (platform != null && platform.isNotEmpty) 'platform': platform,
-      if (shopId != null && shopId.isNotEmpty && shopId != '-') 'shopId': shopId,
-      if (warehouseId != null && warehouseId.isNotEmpty && warehouseId != '-') 'warehouseId': warehouseId,
+      if (shopId != null && shopId.isNotEmpty && shopId != '-')
+        'shopId': shopId,
+      if (warehouseId != null && warehouseId.isNotEmpty && warehouseId != '-')
+        'warehouseId': warehouseId,
     });
-    for (final path in ['/api/inventory/mapping', '/api/warehouses/map', '/api/inventory/map']) {
+    for (final path in [
+      '/api/inventory/mapping',
+      '/api/warehouses/map',
+      '/api/inventory/map',
+    ]) {
       try {
-        final res = await _send(http.put(_u(path), headers: _headers(json: true), body: body));
+        final res = await _send(
+          http.put(_u(path), headers: _headers(json: true), body: body),
+        );
         if (res.statusCode == 404) continue;
         await _json(res);
         return;
@@ -175,12 +260,20 @@ class Api {
   }
 
   static Future<List<StockTransfer>> getStockTransfers() async {
-    for (final path in ['/api/stock-transfers', '/api/inventory/transfers', '/api/transfers']) {
+    for (final path in [
+      '/api/stock-transfers',
+      '/api/inventory/transfers',
+      '/api/transfers',
+    ]) {
       try {
         final res = await _send(http.get(_u(path), headers: _headers()));
         if (res.statusCode == 404) continue;
         final rows = _list(await _json(res));
-        return [for (final row in rows) if (row is Map) StockTransfer.fromApi(Map<String, dynamic>.from(row))];
+        return [
+          for (final row in rows)
+            if (row is Map)
+              StockTransfer.fromApi(Map<String, dynamic>.from(row)),
+        ];
       } on ApiException catch (e) {
         if (e.statusCode == 404) continue;
         rethrow;
@@ -219,9 +312,15 @@ class Api {
       'items': [for (final i in items) i.toJson()],
     });
     ApiException? last;
-    for (final path in ['/api/stock-transfers', '/api/inventory/transfers', '/api/transfers']) {
+    for (final path in [
+      '/api/stock-transfers',
+      '/api/inventory/transfers',
+      '/api/transfers',
+    ]) {
       try {
-        final res = await _send(http.post(_u(path), headers: _headers(json: true), body: body));
+        final res = await _send(
+          http.post(_u(path), headers: _headers(json: true), body: body),
+        );
         if (res.statusCode == 404) continue;
         final data = await _json(res);
         if (data is Map) {
@@ -253,8 +352,12 @@ class Api {
   }
 
   static Future<List<Product>> getProducts({String? platform}) async {
-    final query = platform == null || platform.isEmpty ? null : {'platform': platform};
-    final res = await _send(http.get(_u('/api/products', query), headers: _headers()));
+    final query = platform == null || platform.isEmpty
+        ? null
+        : {'platform': platform};
+    final res = await _send(
+      http.get(_u('/api/products', query), headers: _headers()),
+    );
     final rows = _list(await _json(res));
     return Product.fromApiList(rows);
   }
@@ -262,48 +365,77 @@ class Api {
   static Future<AppSettings> getSettings() async {
     final res = await _send(http.get(_u('/api/settings'), headers: _headers()));
     final data = await _json(res);
-    if (data is Map) return AppSettings.fromApi(Map<String, dynamic>.from(data));
+    if (data is Map)
+      return AppSettings.fromApi(Map<String, dynamic>.from(data));
     return AppSettings.blank();
   }
 
-  static Future<void> saveSettings(AppSettings settings, {String? password, bool clearPassword = false}) async {
-    final res = await _send(http.put(
-      _u('/api/settings'),
-      headers: _headers(json: true),
-      body: jsonEncode(settings.toJson(password: password, clearPassword: clearPassword)),
-    ));
+  static Future<void> saveSettings(
+    AppSettings settings, {
+    String? password,
+    bool clearPassword = false,
+  }) async {
+    final res = await _send(
+      http.put(
+        _u('/api/settings'),
+        headers: _headers(json: true),
+        body: jsonEncode(
+          settings.toJson(password: password, clearPassword: clearPassword),
+        ),
+      ),
+    );
     await _json(res);
   }
 
   static Future<List<Map<String, dynamic>>> getSapItems() async {
-    final res = await _send(http.get(_u('/api/settings/sap-items'), headers: _headers()));
+    final res = await _send(
+      http.get(_u('/api/settings/sap-items'), headers: _headers()),
+    );
     final data = await _json(res);
     if (data is Map) {
-      final rows = pick(Map<String, dynamic>.from(data), ['items', 'Items', 'data', 'Data']);
+      final rows = pick(Map<String, dynamic>.from(data), [
+        'items',
+        'Items',
+        'data',
+        'Data',
+      ]);
       if (rows is List) {
-        return [for (final row in rows) if (row is Map) Map<String, dynamic>.from(row)];
+        return [
+          for (final row in rows)
+            if (row is Map) Map<String, dynamic>.from(row),
+        ];
       }
     }
     if (data is List) {
-      return [for (final row in data) if (row is Map) Map<String, dynamic>.from(row)];
+      return [
+        for (final row in data)
+          if (row is Map) Map<String, dynamic>.from(row),
+      ];
     }
     return const [];
   }
 
   static Future<ErpOptions> getErpOptions() async {
-    final res = await _send(http.get(_u('/api/settings/erp-options'), headers: _headers()));
+    final res = await _send(
+      http.get(_u('/api/settings/erp-options'), headers: _headers()),
+    );
     if (res.statusCode == 404) return const ErpOptions();
     final data = await _json(res);
     if (data is Map) return ErpOptions.fromApi(Map<String, dynamic>.from(data));
     return const ErpOptions();
   }
 
-  static Future<ErpTestResult> testErp(AppSettings settings, {String? password}) async {
-    final res = await _send(http.post(
-      _u('/api/settings/test-erp'),
-      headers: _headers(json: true),
-      body: jsonEncode(settings.toJson(password: password)),
-    ));
+  static Future<ErpTestResult> testErp(
+    AppSettings settings, {
+    String? password,
+  }) async {
+    final res = await _send(
+      http.post(
+        _u('/api/settings/test-erp'),
+        headers: _headers(json: true),
+        body: jsonEncode(settings.toJson(password: password)),
+      ),
+    );
     final data = await _json(res);
     if (data is Map) {
       final map = Map<String, dynamic>.from(data);
@@ -312,8 +444,20 @@ class Api {
       return ErpTestResult(
         message: pickStr(map, ['message', 'Message'], or: 'เชื่อมต่อสำเร็จ'),
         databases: parseSapDatabases(
-          pick(extra, ['databases', 'Databases', 'companies', 'Companies', 'companyDatabases']) ??
-              pick(map, ['databases', 'Databases', 'companies', 'Companies', 'companyDatabases']),
+          pick(extra, [
+                'databases',
+                'Databases',
+                'companies',
+                'Companies',
+                'companyDatabases',
+              ]) ??
+              pick(map, [
+                'databases',
+                'Databases',
+                'companies',
+                'Companies',
+                'companyDatabases',
+              ]),
         ),
       );
     }
@@ -323,7 +467,10 @@ class Api {
   static Future<List<StaffUser>> getUsers() async {
     final res = await _send(http.get(_u('/api/users'), headers: _headers()));
     final rows = _list(await _json(res));
-    return [for (final row in rows) if (row is Map) StaffUser.fromApi(Map<String, dynamic>.from(row))];
+    return [
+      for (final row in rows)
+        if (row is Map) StaffUser.fromApi(Map<String, dynamic>.from(row)),
+    ];
   }
 
   static Future<StaffUser> saveUser(StaffUser user, {String? password}) async {
@@ -332,7 +479,9 @@ class Api {
     ApiException? last;
     for (final base in ['/api/users', '/api/settings/users']) {
       try {
-        final uri = creating ? _u(base) : _u('$base/${Uri.encodeComponent(user.apiKey)}');
+        final uri = creating
+            ? _u(base)
+            : _u('$base/${Uri.encodeComponent(user.apiKey)}');
         final res = await _send(
           creating
               ? http.post(uri, headers: _headers(json: true), body: body)
@@ -340,7 +489,8 @@ class Api {
         );
         if (res.statusCode == 404) continue;
         final data = await _json(res);
-        if (data is Map) return StaffUser.fromApi(Map<String, dynamic>.from(data));
+        if (data is Map)
+          return StaffUser.fromApi(Map<String, dynamic>.from(data));
         return user;
       } on ApiException catch (e) {
         if (e.statusCode == 404) {
@@ -357,7 +507,12 @@ class Api {
     ApiException? last;
     for (final base in ['/api/users', '/api/settings/users']) {
       try {
-        final res = await _send(http.delete(_u('$base/${Uri.encodeComponent(user.apiKey)}'), headers: _headers()));
+        final res = await _send(
+          http.delete(
+            _u('$base/${Uri.encodeComponent(user.apiKey)}'),
+            headers: _headers(),
+          ),
+        );
         if (res.statusCode == 404) continue;
         await _json(res);
         return;
@@ -373,20 +528,38 @@ class Api {
   }
 
   static Future<List<ShopConn>> getConnections() async {
-    final res = await _send(http.get(_u('/api/connections'), headers: _headers()));
+    final res = await _send(
+      http.get(_u('/api/connections'), headers: _headers()),
+    );
     final rows = _list(await _json(res));
-    return [for (final row in rows) if (row is Map) ShopConn.fromApi(Map<String, dynamic>.from(row))];
+    return [
+      for (final row in rows)
+        if (row is Map) ShopConn.fromApi(Map<String, dynamic>.from(row)),
+    ];
   }
 
   static Future<Order?> getOrder(String id) async {
     try {
-      final res = await _send(http.get(_u('/api/orders/${Uri.encodeComponent(id)}'), headers: _headers()));
+      final res = await _send(
+        http.get(
+          _u('/api/orders/${Uri.encodeComponent(id)}'),
+          headers: _headers(),
+        ),
+      );
       if (res.statusCode == 404) return null;
       final data = await _json(res);
       if (data is! Map) return null;
       final map = Map<String, dynamic>.from(data);
-      final nested = pick(map, ['data', 'Data', 'order', 'Order', 'result', 'Result']);
-      if (nested is Map) return Order.fromApi(Map<String, dynamic>.from(nested));
+      final nested = pick(map, [
+        'data',
+        'Data',
+        'order',
+        'Order',
+        'result',
+        'Result',
+      ]);
+      if (nested is Map)
+        return Order.fromApi(Map<String, dynamic>.from(nested));
       return Order.fromApi(map);
     } on ApiException catch (e) {
       if (e.statusCode == 404) return null;
@@ -402,21 +575,29 @@ class Api {
   }) async {
     final query = <String, String>{};
     if (platform != null && platform.isNotEmpty) query['platform'] = platform;
-    if (shopId != null && shopId.isNotEmpty && shopId != '-') query['shopId'] = shopId;
+    if (shopId != null && shopId.isNotEmpty && shopId != '-')
+      query['shopId'] = shopId;
     if (from != null && to != null) {
       String day(DateTime d) =>
           '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
       query['from'] = day(from);
       query['to'] = day(to);
     }
-    final res = await _send(http.get(_u('/api/orders', query.isEmpty ? null : query), headers: _headers()));
+    final res = await _send(
+      http.get(
+        _u('/api/orders', query.isEmpty ? null : query),
+        headers: _headers(),
+      ),
+    );
     final rows = _list(await _json(res));
     final fallback = ChannelX.fromApi(platform);
     final out = <Order>[];
     for (var i = 0; i < rows.length; i++) {
       final row = rows[i];
       if (row is Map) {
-        final map = row is Map<String, dynamic> ? row : Map<String, dynamic>.from(row);
+        final map = row is Map<String, dynamic>
+            ? row
+            : Map<String, dynamic>.from(row);
         out.add(Order.fromApi(map, fallbackChannel: fallback, listOnly: true));
       }
       if (i > 0 && i % 80 == 0) await Future<void>.delayed(Duration.zero);
@@ -438,13 +619,12 @@ class Api {
     int page = 1,
     int pageSize = 20,
   }) async {
-    final query = <String, String>{
-      'page': '$page',
-      'pageSize': '$pageSize',
-    };
+    final query = <String, String>{'page': '$page', 'pageSize': '$pageSize'};
     if (platform != null && platform.isNotEmpty) query['platform'] = platform;
-    if (shopId != null && shopId.isNotEmpty && shopId != '-') query['shopId'] = shopId;
-    if (status != null && status.isNotEmpty && status != 'all') query['status'] = status;
+    if (shopId != null && shopId.isNotEmpty && shopId != '-')
+      query['shopId'] = shopId;
+    if (status != null && status.isNotEmpty && status != 'all')
+      query['status'] = status;
     if (sap != null && sap.isNotEmpty && sap != 'all') query['sap'] = sap;
     final text = q?.trim() ?? '';
     if (text.isNotEmpty) query['q'] = text;
@@ -457,19 +637,29 @@ class Api {
       query['from'] = day(from);
       query['to'] = day(to);
     }
-    final res = await _send(http.get(_u('/api/orders', query), headers: _headers()));
+    final res = await _send(
+      http.get(_u('/api/orders', query), headers: _headers()),
+    );
     final data = await _json(res);
-    final map = data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+    final map = data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
     final raw = map['items'] ?? map['Items'] ?? map['rows'] ?? map['Rows'];
     final rows = raw is List ? raw : const [];
     final totalRaw = map['total'] ?? map['Total'] ?? rows.length;
-    final total = totalRaw is num ? totalRaw.toInt() : int.tryParse('$totalRaw') ?? rows.length;
+    final total = totalRaw is num
+        ? totalRaw.toInt()
+        : int.tryParse('$totalRaw') ?? rows.length;
     final fallback = ChannelX.fromApi(platform);
     final items = <Order>[];
     for (final row in rows) {
       if (row is Map) {
-        final item = row is Map<String, dynamic> ? row : Map<String, dynamic>.from(row);
-        items.add(Order.fromApi(item, fallbackChannel: fallback, listOnly: true));
+        final item = row is Map<String, dynamic>
+            ? row
+            : Map<String, dynamic>.from(row);
+        items.add(
+          Order.fromApi(item, fallbackChannel: fallback, listOnly: true),
+        );
       }
     }
     return (items: items, total: total);
@@ -486,12 +676,22 @@ class Api {
   }
 
   static Future<void> syncPlatform(Channel channel) async {
-    final res = await _send(http.post(_u('/api/sync/${channel.apiSlug}'), headers: _headers(json: true)));
+    final res = await _send(
+      http.post(
+        _u('/api/sync/${channel.apiSlug}'),
+        headers: _headers(json: true),
+      ),
+    );
     await _json(res);
   }
 
   static Future<Map<String, dynamic>> syncJob(String jobId) async {
-    final res = await _send(http.get(_u('/api/sync/jobs/${Uri.encodeComponent(jobId)}'), headers: _headers()));
+    final res = await _send(
+      http.get(
+        _u('/api/sync/jobs/${Uri.encodeComponent(jobId)}'),
+        headers: _headers(),
+      ),
+    );
     final data = await _json(res);
     if (data is Map) return Map<String, dynamic>.from(data);
     return {};
@@ -526,40 +726,50 @@ class Api {
     final origin = web.window.location.origin;
     final back = '$origin/connections';
     web.window.localStorage.setItem(oauthReturnKey, channel.apiSlug);
-    web.window.location.href = Uri.parse('$apiUrl/api/connections/${channel.apiSlug}/connect').replace(
-      queryParameters: {'returnUrl': back, 'redirect': back},
-    ).toString();
+    web.window.location.href =
+        Uri.parse('$apiUrl/api/connections/${channel.apiSlug}/connect')
+            .replace(queryParameters: {'returnUrl': back, 'redirect': back})
+            .toString();
   }
 
   static Future<String> removeShop(Channel channel, {String? shopId}) async {
     final id = (shopId ?? '').trim();
-    final res = await _send(http.post(
-      _u('/api/connections/${channel.apiSlug}/remove'),
-      headers: _headers(json: true),
-      body: jsonEncode({
-        if (id.isNotEmpty && id != '-') 'shopId': id,
-      }),
-    ));
+    final res = await _send(
+      http.post(
+        _u('/api/connections/${channel.apiSlug}/remove'),
+        headers: _headers(json: true),
+        body: jsonEncode({if (id.isNotEmpty && id != '-') 'shopId': id}),
+      ),
+    );
     final data = await _json(res);
     if (data is Map) {
-      final msg = pickStr(Map<String, dynamic>.from(data), ['message', 'Message'], or: '');
+      final msg = pickStr(Map<String, dynamic>.from(data), [
+        'message',
+        'Message',
+      ], or: '');
       if (msg.isNotEmpty && msg != '-') return msg;
     }
     return 'ลบร้านค้าออกจากระบบ PASS แล้ว';
   }
 
-  static Future<String> disconnectPlatform(Channel channel, {String? shopId}) async {
+  static Future<String> disconnectPlatform(
+    Channel channel, {
+    String? shopId,
+  }) async {
     final id = (shopId ?? '').trim();
-    final res = await _send(http.post(
-      _u('/api/connections/${channel.apiSlug}/disconnect'),
-      headers: _headers(json: true),
-      body: jsonEncode({
-        if (id.isNotEmpty && id != '-') 'shopId': id,
-      }),
-    ));
+    final res = await _send(
+      http.post(
+        _u('/api/connections/${channel.apiSlug}/disconnect'),
+        headers: _headers(json: true),
+        body: jsonEncode({if (id.isNotEmpty && id != '-') 'shopId': id}),
+      ),
+    );
     final data = await _json(res);
     if (data is Map) {
-      final msg = pickStr(Map<String, dynamic>.from(data), ['message', 'Message'], or: '');
+      final msg = pickStr(Map<String, dynamic>.from(data), [
+        'message',
+        'Message',
+      ], or: '');
       if (msg.isNotEmpty && msg != '-') return msg;
     }
     return 'ยกเลิกการเชื่อมต่อ ${channel.label} แล้ว';
@@ -591,7 +801,11 @@ class Api {
     try {
       final users = await getUsers();
       for (final u in users) {
-        final keys = {u.email.trim().toLowerCase(), u.name.trim().toLowerCase(), u.id.trim().toLowerCase()};
+        final keys = {
+          u.email.trim().toLowerCase(),
+          u.name.trim().toLowerCase(),
+          u.id.trim().toLowerCase(),
+        };
         if (keys.intersection(ids).isEmpty) continue;
         if (u.role.isNotEmpty && u.role != '-') return u.role;
       }
@@ -600,15 +814,26 @@ class Api {
   }
 
   /// ตรวจผู้ใช้จากฐานข้อมูลผ่าน Backend เท่านั้น
-  static Future<AuthUser> login({required String email, required String password}) async {
+  static Future<AuthUser> login({
+    required String email,
+    required String password,
+  }) async {
     final body = jsonEncode({
       'email': email,
       'username': email,
       'password': password,
     });
-    var res = await _send(http.post(_u('/api/auth/login'), headers: _headers(json: true), body: body));
+    var res = await _send(
+      http.post(
+        _u('/api/auth/login'),
+        headers: _headers(json: true),
+        body: body,
+      ),
+    );
     if (res.statusCode == 404) {
-      res = await _send(http.post(_u('/api/login'), headers: _headers(json: true), body: body));
+      res = await _send(
+        http.post(_u('/api/login'), headers: _headers(json: true), body: body),
+      );
     }
     if (res.statusCode == 401 || res.statusCode == 403) {
       final msg = _backendMessage(res);
@@ -624,15 +849,41 @@ class Api {
     final map = Map<String, dynamic>.from(data);
     final nested = pick(map, ['user', 'User', 'data', 'Data']);
     final user = nested is Map ? Map<String, dynamic>.from(nested) : map;
-    var name = pickStr(user, ['Name', 'name', 'FullName', 'DisplayName', 'displayName'], or: '');
+    var name = pickStr(user, [
+      'Name',
+      'name',
+      'FullName',
+      'DisplayName',
+      'displayName',
+    ], or: '');
     if (name == '-') name = '';
     var role = pickRole(user);
     if (role.isEmpty) role = pickRole(map);
-    if (role.isEmpty) role = roleFromToken(pickStr(map, ['Token', 'token', 'accessToken', 'access_token', 'jwt'], or: ''));
+    if (role.isEmpty)
+      role = roleFromToken(
+        pickStr(map, [
+          'Token',
+          'token',
+          'accessToken',
+          'access_token',
+          'jwt',
+        ], or: ''),
+      );
     return AuthUser(
-      email: pickStr(user, ['Email', 'email', 'Username', 'username'], or: email),
+      email: pickStr(user, [
+        'Email',
+        'email',
+        'Username',
+        'username',
+      ], or: email),
       name: name,
-      token: pickStr(map, ['Token', 'token', 'accessToken', 'access_token', 'jwt'], or: ''),
+      token: pickStr(map, [
+        'Token',
+        'token',
+        'accessToken',
+        'access_token',
+        'jwt',
+      ], or: ''),
       role: role,
     );
   }

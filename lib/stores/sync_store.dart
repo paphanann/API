@@ -10,20 +10,24 @@ class SyncLogStore extends PassStore {
   bool loading = false;
   String? error;
 
-  Future<void> load() async {
-    loading = true;
-    error = null;
-    notifyListeners();
-    try {
-      logs = await Api.getSyncLogs();
-    } catch (e) {
-      error = e is ApiException ? e.message : e.toString();
-      logs = [];
-    }
-    loading = false;
-    notifyListeners();
+Future<void> load({DateTime? from, DateTime? to}) async {
+  loading = true;
+  error = null;
+  notifyListeners();
+
+  try {
+    logs = await Api.getSyncLogs(
+      from: from,
+      to: to,
+    );
+  } catch (e) {
+    error = e is ApiException ? e.message : e.toString();
+    logs = [];
   }
 
+  loading = false;
+  notifyListeners();
+}
   SyncRow? byRouteId(String id) {
     for (final l in logs) {
       if (l.routeId == id || l.id == id) return l;
